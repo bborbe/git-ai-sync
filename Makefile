@@ -18,7 +18,7 @@ sync:
 run:
 	uv run git-ai-sync
 
-test:
+test: sync
 	uv run pytest
 
 precommit: sync format test check

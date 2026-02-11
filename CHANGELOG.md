@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.2.7
+
+- Add comprehensive test suites for config, file_watcher, conflict_resolver, and __main__ (55 new tests)
+- Add sync dependency to make test target
+
 ## v0.2.6
 
 - Catch specific ClaudeSDKError instead of bare Exception in conflict resolver
