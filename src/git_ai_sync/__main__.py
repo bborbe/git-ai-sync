@@ -193,9 +193,81 @@ def cmd_sync(args: argparse.Namespace) -> None:
 
 def cmd_resolve(args: argparse.Namespace) -> None:
     """Resolve conflicts."""
-    logger.info(f"Resolving conflicts: path={args.path}")
-    # TODO: implement conflict resolution
-    print("Resolve not implemented yet")
+    import asyncio
+    from pathlib import Path
+
+    from git_ai_sync import conflict_resolver, git_operations
+    from git_ai_sync.config import Config
+
+    config = Config()
+    repo_path = Path(args.path).resolve()
+
+    logger.info(f"Resolving conflicts: path={repo_path}")
+
+    # 1. Validate git repository
+    git_repo = git_operations.find_git_repo(repo_path)
+    if not git_repo:
+        logger.error(f"Not a git repository: {repo_path}")
+        print(f"❌ Not a git repository: {repo_path}")
+        sys.exit(1)
+
+    # 2. Check if in rebase state
+    if not git_operations.is_in_rebase(git_repo):
+        logger.error("Not in rebase state")
+        print("❌ Not in rebase state. Run 'git-ai-sync sync' to sync changes.")
+        sys.exit(1)
+
+    # 3. Check for ANTHROPIC_API_KEY
+    if not config.anthropic_api_key:
+        logger.error("ANTHROPIC_API_KEY not set")
+        print("❌ ANTHROPIC_API_KEY environment variable not set")
+        print("   Set it with: export ANTHROPIC_API_KEY=your_key")
+        sys.exit(1)
+
+    print(f"🤖 Resolving conflicts with Claude ({config.model})...")
+    logger.info(f"Using model: {config.model}")
+
+    # 4. Resolve conflicts
+    async def run_resolution() -> bool:
+        try:
+            resolved_count, failed_files = await conflict_resolver.resolve_all_conflicts(
+                git_repo, config.model
+            )
+
+            if failed_files:
+                print(f"⚠️  Failed to resolve {len(failed_files)} files:")
+                for file in failed_files:
+                    print(f"   - {file}")
+                return False
+
+            if resolved_count == 0:
+                print("No conflicts found")
+                return False
+
+            print(f"✓ Resolved {resolved_count} files")
+
+            # 5. Continue rebase
+            print("→ Continuing rebase...")
+            await conflict_resolver.continue_rebase(git_repo)
+            print("✓ Rebase continued")
+
+            # 6. Push changes
+            print("→ Pushing to remote...")
+            git_operations.push(git_repo)
+            print("✓ Pushed")
+
+            return True
+
+        except conflict_resolver.ConflictError as e:
+            logger.error(f"Resolution failed: {e}")
+            print(f"❌ {e}")
+            return False
+
+    success = asyncio.run(run_resolution())
+    if success:
+        print(f"✅ Conflicts resolved: {git_repo}")
+    else:
+        sys.exit(1)
 
 
 def cmd_status(args: argparse.Namespace) -> None:
