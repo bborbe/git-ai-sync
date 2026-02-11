@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.2.0
+
+- Add full sync command implementation (stage, commit, pull --rebase, push)
+- Add AI-powered conflict resolution using Claude SDK
+- Add watch mode with filesystem monitoring and debounce-gating
+- Add git operations module with all core git functions
+- Add configuration management with environment variables
+- Add watchdog dependency for filesystem watching
+- Improve watch mode logging visibility
+
 ## v0.1.0
 
 - Add minimal Python project structure with src/ layout

@@ -143,20 +143,21 @@ def cmd_watch(args: argparse.Namespace) -> None:
                 logger.info(
                     f"Skipping sync - files changed {seconds_since_change:.1f}s ago (still editing)"
                 )
-                print(f"[{iteration}] Skipping - still editing", end="\r", flush=True)
+                print(f"[{iteration}] Skipping - still editing ({seconds_since_change:.1f}s ago)")
                 continue
 
             # Safe to sync - no recent changes
+            logger.debug(f"Iteration {iteration}: checking for changes")
             try:
                 # Check for changes
                 has_changes = git_operations.has_changes(git_repo)
 
                 if not has_changes:
                     logger.debug("No changes to sync")
-                    print(f"[{iteration}] No changes", end="\r", flush=True)
+                    print(f"[{iteration}] No changes")
                     continue
 
-                print(f"\n[{iteration}] Syncing...")
+                print(f"[{iteration}] Syncing...")
 
                 # Stage all changes
                 git_operations.stage_all(git_repo)
