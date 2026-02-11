@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.2.2
+
+- Enhance watch mode output with detailed status at each iteration
+- Show pulled commits from remote with messages
+- Show local file changes with git status
+- Always pull from remote even when no local changes
+
 ## v0.2.1
 
 - Update README with uvx usage examples from GitHub

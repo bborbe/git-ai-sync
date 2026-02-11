@@ -4,6 +4,7 @@ import argparse
 import logging
 import os
 import signal
+import subprocess
 import sys
 from typing import NoReturn
 
@@ -147,17 +148,96 @@ def cmd_watch(args: argparse.Namespace) -> None:
                 continue
 
             # Safe to sync - no recent changes
+            print(f"[{iteration}] Checking...")
             logger.debug(f"Iteration {iteration}: checking for changes")
             try:
-                # Check for changes
-                has_changes = git_operations.has_changes(git_repo)
+                # Check for local changes first
+                has_local_changes = git_operations.has_changes(git_repo)
 
-                if not has_changes:
-                    logger.debug("No changes to sync")
-                    print(f"[{iteration}] No changes")
+                # Always pull to get remote changes
+                try:
+                    # Get current HEAD before pull
+                    result = subprocess.run(
+                        ["git", "rev-parse", "HEAD"],
+                        cwd=git_repo,
+                        capture_output=True,
+                        text=True,
+                        check=True,
+                    )
+                    before_pull = result.stdout.strip()
+
+                    # Pull with rebase
+                    git_operations.pull_rebase(git_repo)
+
+                    # Get HEAD after pull
+                    result = subprocess.run(
+                        ["git", "rev-parse", "HEAD"],
+                        cwd=git_repo,
+                        capture_output=True,
+                        text=True,
+                        check=True,
+                    )
+                    after_pull = result.stdout.strip()
+
+                    # Show what was pulled
+                    if before_pull != after_pull:
+                        # Get commit count
+                        result = subprocess.run(
+                            ["git", "rev-list", "--count", f"{before_pull}..{after_pull}"],
+                            cwd=git_repo,
+                            capture_output=True,
+                            text=True,
+                            check=True,
+                        )
+                        commit_count = int(result.stdout.strip())
+
+                        # Get commit messages
+                        result = subprocess.run(
+                            ["git", "log", "--oneline", f"{before_pull}..{after_pull}"],
+                            cwd=git_repo,
+                            capture_output=True,
+                            text=True,
+                            check=True,
+                        )
+                        commits = result.stdout.strip().split("\n")
+
+                        print(f"  Pulled {commit_count} commit(s) from remote:")
+                        for commit_line in commits[:3]:  # Show max 3 commits
+                            print(f"    {commit_line}")
+                        if len(commits) > 3:
+                            print(f"    ... and {len(commits) - 3} more")
+                    else:
+                        print("  No new commits from remote")
+
+                except git_operations.GitError as e:
+                    if "conflicts" in str(e).lower():
+                        logger.error(f"Rebase conflicts detected: {e}")
+                        print("  Rebase conflicts detected")
+                        print(f"  Run 'git-ai-sync resolve {git_repo}' to resolve")
+                        print("  Stopping watch mode")
+                        tracker.stop()
+                        sys.exit(1)
+                    raise
+
+                # Handle local changes
+                if not has_local_changes:
+                    print("  No local changes")
                     continue
 
-                print(f"[{iteration}] Syncing...")
+                # Show what changed locally
+                result = subprocess.run(
+                    ["git", "status", "--short"],
+                    cwd=git_repo,
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
+                changed_files = [line for line in result.stdout.strip().split("\n") if line]
+                print(f"  Local changes detected ({len(changed_files)} file(s)):")
+                for file_line in changed_files[:5]:  # Show max 5 files
+                    print(f"    {file_line}")
+                if len(changed_files) > 5:
+                    print(f"    ... and {len(changed_files) - 5} more")
 
                 # Stage all changes
                 git_operations.stage_all(git_repo)
@@ -167,24 +247,9 @@ def cmd_watch(args: argparse.Namespace) -> None:
                 git_operations.commit(git_repo, commit_msg)
                 print(f"  Committed: {commit_msg}")
 
-                # Pull with rebase
-                try:
-                    git_operations.pull_rebase(git_repo)
-                    print("  Pulled with rebase")
-                except git_operations.GitError as e:
-                    if "conflicts" in str(e).lower():
-                        logger.error(f"Rebase conflicts detected: {e}")
-                        print("\n  Rebase conflicts detected")
-                        print(f"  Run 'git-ai-sync resolve {git_repo}' to resolve")
-                        print("  Stopping watch mode")
-                        tracker.stop()
-                        sys.exit(1)
-                    raise
-
                 # Push to remote
                 git_operations.push(git_repo)
-                print("  Pushed")
-                print("  Sync completed\n")
+                print("  Pushed to remote")
 
             except git_operations.GitError as e:
                 # Log error but continue watching
