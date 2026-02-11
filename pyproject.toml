@@ -16,6 +16,7 @@ dependencies = [
     "claude-code-sdk>=0.0.25",
     "pydantic>=2.10.0",
     "pydantic-settings>=2.7.0",
+    "watchdog>=6.0.0",
 ]
 
 [project.optional-dependencies]

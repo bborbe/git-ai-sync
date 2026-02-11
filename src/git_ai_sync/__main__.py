@@ -101,95 +101,115 @@ def configure_logging(level: str) -> None:
 
 
 def cmd_watch(args: argparse.Namespace) -> None:
-    """Start watching and syncing."""
+    """Start watching and syncing with debounced filesystem monitoring."""
     import time
     from pathlib import Path
 
     from git_ai_sync import git_operations
     from git_ai_sync.config import Config
+    from git_ai_sync.file_watcher import DebouncedWatcher
 
     config = Config()
     repo_path = Path(args.path).resolve()
-    interval = args.interval
+    debounce_seconds = float(args.interval)
 
-    logger.info(f"Starting watch mode: path={repo_path}, interval={interval}s")
+    logger.info(f"Starting watch mode: path={repo_path}, debounce={debounce_seconds}s")
 
     # Validate git repository once at startup
     git_repo = git_operations.find_git_repo(repo_path)
     if not git_repo:
         logger.error(f"Not a git repository: {repo_path}")
-        print(f"❌ Not a git repository: {repo_path}")
+        print(f"Not a git repository: {repo_path}")
         sys.exit(1)
 
-    print(f"👁️  Watching: {git_repo}")
-    print(f"⏱️  Interval: {interval}s")
+    print(f"Watching: {git_repo}")
+    print(f"Debounce: {debounce_seconds}s (waits for quiet period)")
     print("Press Ctrl+C to stop")
     print()
 
-    iteration = 0
-    while True:
-        iteration += 1
-        logger.info(f"Sync iteration {iteration}")
+    sync_count = 0
+
+    def do_sync() -> None:
+        """Perform sync operation."""
+        nonlocal sync_count
+        sync_count += 1
 
         try:
             # Check for changes
             has_changes = git_operations.has_changes(git_repo)
 
             if not has_changes:
-                logger.debug("No changes detected")
-                print(f"[{iteration}] No changes", end="\r", flush=True)
-            else:
-                print(f"\n[{iteration}] Changes detected, syncing...")
+                logger.info("No changes to sync")
+                print(f"[{sync_count}] No changes to sync")
+                return
 
-                # Stage all changes
-                git_operations.stage_all(git_repo)
-                logger.info("✓ Staged")
+            print(f"\n[{sync_count}] Syncing changes...")
 
-                # Commit with auto-generated message
-                commit_msg = git_operations.generate_commit_message(config.commit_prefix)
-                git_operations.commit(git_repo, commit_msg)
-                logger.info(f"✓ Committed: {commit_msg}")
-                print(f"  ✓ Committed: {commit_msg}")
+            # Stage all changes
+            git_operations.stage_all(git_repo)
+            logger.info("Staged")
 
-                # Pull with rebase
-                try:
-                    git_operations.pull_rebase(git_repo)
-                    logger.info("✓ Pulled")
-                    print("  ✓ Pulled with rebase")
-                except git_operations.GitError as e:
-                    if "conflicts" in str(e).lower():
-                        logger.error(f"Rebase conflicts detected: {e}")
-                        print("\n  ❌ Rebase conflicts detected")
-                        print(f"  💡 Run 'git-ai-sync resolve {git_repo}' to resolve")
-                        print("  ⏸️  Stopping watch mode")
-                        sys.exit(1)
-                    raise
+            # Commit with auto-generated message
+            commit_msg = git_operations.generate_commit_message(config.commit_prefix)
+            git_operations.commit(git_repo, commit_msg)
+            logger.info(f"Committed: {commit_msg}")
+            print(f"  Committed: {commit_msg}")
 
-                # Push to remote
-                git_operations.push(git_repo)
-                logger.info("✓ Pushed")
-                print("  ✓ Pushed to remote")
-                print("  ✅ Sync completed\n")
+            # Pull with rebase
+            try:
+                git_operations.pull_rebase(git_repo)
+                logger.info("Pulled")
+                print("  Pulled with rebase")
+            except git_operations.GitError as e:
+                if "conflicts" in str(e).lower():
+                    logger.error(f"Rebase conflicts detected: {e}")
+                    print("\n  Rebase conflicts detected")
+                    print(f"  Run 'git-ai-sync resolve {git_repo}' to resolve")
+                    print("  Stopping watch mode")
+                    sys.exit(1)
+                raise
+
+            # Push to remote
+            git_operations.push(git_repo)
+            logger.info("Pushed")
+            print("  Pushed to remote")
+            print("  Sync completed\n")
 
         except git_operations.GitError as e:
             # Log error but continue watching
             logger.error(f"Sync failed: {e}")
-            print(f"\n  ⚠️  Sync failed: {e}")
+            print(f"\n  Sync failed: {e}")
             print("  Continuing to watch...\n")
-
-        except KeyboardInterrupt:
-            print("\n\n✋ Stopping watch mode")
-            logger.info("Watch mode stopped by user")
-            break
 
         except Exception as e:
             # Unexpected error - log but continue
             logger.exception(f"Unexpected error: {e}")
-            print(f"\n  ⚠️  Unexpected error: {e}")
+            print(f"\n  Unexpected error: {e}")
             print("  Continuing to watch...\n")
 
-        # Wait for next iteration
-        time.sleep(interval)
+    # Start debounced watcher
+    watcher = DebouncedWatcher(
+        watch_path=git_repo,
+        callback=do_sync,
+        debounce_seconds=debounce_seconds,
+    )
+
+    try:
+        watcher.start()
+        print("Watching for changes...\n")
+
+        # Keep main thread alive
+        while True:
+            time.sleep(1)
+
+    except KeyboardInterrupt:
+        print("\n\nStopping watch mode")
+        logger.info("Watch mode stopped by user")
+        watcher.stop()
+    except Exception as e:
+        logger.exception(f"Watch mode error: {e}")
+        watcher.stop()
+        raise
 
 
 def cmd_sync(args: argparse.Namespace) -> None:
