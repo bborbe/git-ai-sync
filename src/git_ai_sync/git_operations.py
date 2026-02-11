@@ -205,6 +205,178 @@ def get_current_branch(repo_path: Path) -> str:
     return result.stdout.strip()
 
 
+def get_head_commit(repo_path: Path) -> str:
+    """Get current HEAD commit hash.
+
+    Args:
+        repo_path: Path to git repository
+
+    Returns:
+        HEAD commit hash
+
+    Raises:
+        GitError: If unable to get HEAD
+    """
+    result = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    if result.returncode != 0:
+        raise GitError(f"Failed to get HEAD: {result.stderr}")
+
+    return result.stdout.strip()
+
+
+def get_commit_count(repo_path: Path, from_ref: str, to_ref: str) -> int:
+    """Get number of commits between two refs.
+
+    Args:
+        repo_path: Path to git repository
+        from_ref: Starting ref
+        to_ref: Ending ref
+
+    Returns:
+        Number of commits between refs
+    """
+    result = subprocess.run(
+        ["git", "rev-list", "--count", f"{from_ref}..{to_ref}"],
+        cwd=repo_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    if result.returncode != 0:
+        raise GitError(f"Failed to count commits: {result.stderr}")
+
+    return int(result.stdout.strip())
+
+
+def get_commit_log(repo_path: Path, from_ref: str, to_ref: str) -> list[str]:
+    """Get one-line commit log between two refs.
+
+    Args:
+        repo_path: Path to git repository
+        from_ref: Starting ref
+        to_ref: Ending ref
+
+    Returns:
+        List of one-line commit messages
+    """
+    result = subprocess.run(
+        ["git", "log", "--oneline", f"{from_ref}..{to_ref}"],
+        cwd=repo_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    if result.returncode != 0:
+        raise GitError(f"Failed to get commit log: {result.stderr}")
+
+    lines = result.stdout.strip()
+    if not lines:
+        return []
+    return lines.split("\n")
+
+
+def get_changed_files_short(repo_path: Path) -> list[str]:
+    """Get short status of changed files.
+
+    Args:
+        repo_path: Path to git repository
+
+    Returns:
+        List of short status lines (e.g. " M file.txt")
+    """
+    result = subprocess.run(
+        ["git", "status", "--short"],
+        cwd=repo_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    if result.returncode != 0:
+        raise GitError(f"Failed to get changed files: {result.stderr}")
+
+    output = result.stdout.rstrip("\n")
+    if not output:
+        return []
+    return [line for line in output.split("\n") if line]
+
+
+def stage_file(repo_path: Path, file_path: str) -> None:
+    """Stage a specific file.
+
+    Args:
+        repo_path: Path to git repository
+        file_path: Relative path to file to stage
+
+    Raises:
+        GitError: If staging fails
+    """
+    result = subprocess.run(
+        ["git", "add", file_path],
+        cwd=repo_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    if result.returncode != 0:
+        raise GitError(f"Failed to stage {file_path}: {result.stderr}")
+
+
+def get_conflicted_files(repo_path: Path) -> list[str]:
+    """Get list of files with merge conflicts.
+
+    Args:
+        repo_path: Path to git repository
+
+    Returns:
+        List of file paths with conflicts
+    """
+    result = subprocess.run(
+        ["git", "diff", "--name-only", "--diff-filter=U"],
+        cwd=repo_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    if result.returncode != 0:
+        raise GitError(f"Failed to get conflicted files: {result.stderr}")
+
+    files = [line.strip() for line in result.stdout.strip().split("\n") if line.strip()]
+    return files
+
+
+def continue_rebase(repo_path: Path) -> None:
+    """Continue rebase after resolving conflicts.
+
+    Args:
+        repo_path: Path to git repository
+
+    Raises:
+        GitError: If rebase continuation fails
+    """
+    result = subprocess.run(
+        ["git", "rebase", "--continue"],
+        cwd=repo_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    if result.returncode != 0:
+        raise GitError(f"Failed to continue rebase: {result.stderr}")
+
+
 def generate_commit_message(prefix: str = "auto") -> str:
     """Generate auto-commit message with timestamp.
 

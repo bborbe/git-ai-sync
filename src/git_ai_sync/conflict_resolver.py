@@ -2,10 +2,11 @@
 
 import logging
 import re
-import subprocess
 from pathlib import Path
 
 from claude_code_sdk import AssistantMessage, ClaudeCodeOptions, ClaudeSDKClient, TextBlock
+
+from git_ai_sync import git_operations
 
 logger = logging.getLogger(__name__)
 
@@ -14,30 +15,6 @@ class ConflictError(Exception):
     """Conflict resolution failed."""
 
     pass
-
-
-def get_conflicted_files(repo_path: Path) -> list[str]:
-    """Get list of files with merge conflicts.
-
-    Args:
-        repo_path: Path to git repository
-
-    Returns:
-        List of file paths with conflicts
-    """
-    result = subprocess.run(
-        ["git", "diff", "--name-only", "--diff-filter=U"],
-        cwd=repo_path,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    if result.returncode != 0:
-        raise ConflictError(f"Failed to get conflicted files: {result.stderr}")
-
-    files = [line.strip() for line in result.stdout.strip().split("\n") if line.strip()]
-    return files
 
 
 def parse_conflict_markers(content: str) -> list[dict[str, str]]:
@@ -160,7 +137,7 @@ Return ONLY the file content, no explanations, no markdown code blocks.
             lines = lines[:-1]
         resolved = "\n".join(lines)
 
-    logger.info(f"✓ Resolved {file_path}")
+    logger.info(f"Resolved {file_path}")
     return resolved
 
 
@@ -181,7 +158,7 @@ async def resolve_all_conflicts(
         ConflictError: If unable to get conflicted files
     """
     # Get conflicted files
-    conflicted_files = get_conflicted_files(repo_path)
+    conflicted_files = git_operations.get_conflicted_files(repo_path)
 
     if not conflicted_files:
         logger.info("No conflicted files found")
@@ -194,7 +171,7 @@ async def resolve_all_conflicts(
 
     for file_path in conflicted_files:
         full_path = repo_path / file_path
-        logger.info(f"→ Resolving {file_path}")
+        logger.info(f"Resolving {file_path}")
 
         try:
             # Read file with conflicts
@@ -207,21 +184,9 @@ async def resolve_all_conflicts(
             full_path.write_text(resolved_content, encoding="utf-8")
 
             # Stage resolved file
-            result = subprocess.run(
-                ["git", "add", file_path],
-                cwd=repo_path,
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-
-            if result.returncode != 0:
-                logger.error(f"Failed to stage {file_path}: {result.stderr}")
-                failed_files.append(file_path)
-                continue
-
+            git_operations.stage_file(repo_path, file_path)
             resolved_count += 1
-            logger.info(f"✓ Resolved and staged {file_path}")
+            logger.info(f"Resolved and staged {file_path}")
 
         except Exception as e:
             logger.error(f"Failed to resolve {file_path}: {e}")
@@ -239,17 +204,12 @@ async def continue_rebase(repo_path: Path) -> None:
     Raises:
         ConflictError: If rebase continuation fails
     """
-    result = subprocess.run(
-        ["git", "rebase", "--continue"],
-        cwd=repo_path,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    if result.returncode != 0:
-        # Check if there are still conflicts
-        conflicted = get_conflicted_files(repo_path)
+    try:
+        git_operations.continue_rebase(repo_path)
+    except git_operations.GitError as e:
+        conflicted = git_operations.get_conflicted_files(repo_path)
         if conflicted:
-            raise ConflictError(f"Rebase failed - still have conflicts in: {', '.join(conflicted)}")
-        raise ConflictError(f"Failed to continue rebase: {result.stderr}")
+            raise ConflictError(
+                f"Rebase failed - still have conflicts in: {', '.join(conflicted)}"
+            ) from e
+        raise ConflictError(f"Failed to continue rebase: {e}") from e

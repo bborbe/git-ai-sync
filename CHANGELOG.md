@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.2.4
+
+- Extract subprocess calls from __main__.py and conflict_resolver into git_operations
+- Add git_operations functions: get_head_commit, get_commit_count, get_commit_log, get_changed_files_short, stage_file, get_conflicted_files, continue_rebase
+- Add comprehensive git_operations test suite (36 tests)
+- Remove remaining emojis from conflict_resolver log messages
+
 ## v0.2.3
 
 - Replace all print() with structured logging via logging module

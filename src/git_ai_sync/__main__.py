@@ -4,7 +4,6 @@ import argparse
 import logging
 import os
 import signal
-import subprocess
 import sys
 from typing import NoReturn
 
@@ -144,51 +143,15 @@ def cmd_watch(args: argparse.Namespace) -> None:
 
                 # Always pull to get remote changes
                 try:
-                    # Get current HEAD before pull
-                    result = subprocess.run(
-                        ["git", "rev-parse", "HEAD"],
-                        cwd=git_repo,
-                        capture_output=True,
-                        text=True,
-                        check=True,
-                    )
-                    before_pull = result.stdout.strip()
-
-                    # Pull with rebase
+                    before_pull = git_operations.get_head_commit(git_repo)
                     git_operations.pull_rebase(git_repo)
+                    after_pull = git_operations.get_head_commit(git_repo)
 
-                    # Get HEAD after pull
-                    result = subprocess.run(
-                        ["git", "rev-parse", "HEAD"],
-                        cwd=git_repo,
-                        capture_output=True,
-                        text=True,
-                        check=True,
-                    )
-                    after_pull = result.stdout.strip()
-
-                    # Show what was pulled
                     if before_pull != after_pull:
-                        # Get commit count
-                        result = subprocess.run(
-                            ["git", "rev-list", "--count", f"{before_pull}..{after_pull}"],
-                            cwd=git_repo,
-                            capture_output=True,
-                            text=True,
-                            check=True,
+                        commit_count = git_operations.get_commit_count(
+                            git_repo, before_pull, after_pull
                         )
-                        commit_count = int(result.stdout.strip())
-
-                        # Get commit messages
-                        result = subprocess.run(
-                            ["git", "log", "--oneline", f"{before_pull}..{after_pull}"],
-                            cwd=git_repo,
-                            capture_output=True,
-                            text=True,
-                            check=True,
-                        )
-                        commits = result.stdout.strip().split("\n")
-
+                        commits = git_operations.get_commit_log(git_repo, before_pull, after_pull)
                         logger.info(f"Pulled {commit_count} commit(s) from remote")
                         for commit_line in commits[:3]:
                             logger.info(f"  {commit_line}")
@@ -211,14 +174,7 @@ def cmd_watch(args: argparse.Namespace) -> None:
                     continue
 
                 # Show what changed locally
-                result = subprocess.run(
-                    ["git", "status", "--short"],
-                    cwd=git_repo,
-                    capture_output=True,
-                    text=True,
-                    check=True,
-                )
-                changed_files = [line for line in result.stdout.strip().split("\n") if line]
+                changed_files = git_operations.get_changed_files_short(git_repo)
                 logger.info(f"Local changes detected ({len(changed_files)} file(s))")
                 for file_line in changed_files[:5]:
                     logger.info(f"  {file_line}")
