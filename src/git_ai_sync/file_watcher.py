@@ -1,7 +1,8 @@
-"""Debounced filesystem watcher for git repositories."""
+"""Filesystem watcher for git repositories."""
 
 import logging
 import threading
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -15,61 +16,40 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class DebouncedWatcher:
-    """Watches filesystem and triggers callback after debounce period of no changes.
+class ChangeTracker:
+    """Tracks last file change time to gate sync operations.
 
-    When a file changes, starts/resets a timer. Only calls the callback when
-    the timer expires without any new changes (debounce period elapsed).
-
-    This prevents rapid callbacks during active editing sessions.
+    Watches filesystem and records when files change. Used to skip sync
+    during active editing (if changes happened recently).
     """
 
-    def __init__(
-        self,
-        watch_path: Path,
-        callback: Callable[[], None],
-        debounce_seconds: float = 30.0,
-    ):
-        """Initialize debounced watcher.
+    def __init__(self, watch_path: Path):
+        """Initialize change tracker.
 
         Args:
             watch_path: Directory to watch
-            callback: Function to call after debounce period
-            debounce_seconds: Seconds of no changes before triggering callback
         """
         self.watch_path = watch_path
-        self.callback = callback
-        self.debounce_seconds = debounce_seconds
-
         self._observer: BaseObserver | None = None
-        self._timer: threading.Timer | None = None
-        self._timer_lock = threading.Lock()
-        self._stopped = False
+        self._last_change_time: float = 0.0
+        self._lock = threading.Lock()
 
     def _on_file_change(self) -> None:
-        """Handle file change event - reset debounce timer."""
-        with self._timer_lock:
-            # Cancel existing timer
-            if self._timer and self._timer.is_alive():
-                self._timer.cancel()
+        """Handle file change event - update last change time."""
+        with self._lock:
+            self._last_change_time = time.time()
+            logger.debug("File change detected")
 
-            if self._stopped:
-                return
+    def get_seconds_since_last_change(self) -> float:
+        """Get seconds since last file change.
 
-            # Start new timer
-            self._timer = threading.Timer(self.debounce_seconds, self._on_timer_expired)
-            self._timer.daemon = True
-            self._timer.start()
-            logger.debug(f"Timer reset: {self.debounce_seconds}s until sync")
-
-    def _on_timer_expired(self) -> None:
-        """Timer expired - trigger callback."""
-        if not self._stopped:
-            logger.info("Debounce period elapsed, triggering sync")
-            try:
-                self.callback()
-            except Exception as e:
-                logger.error(f"Callback failed: {e}", exc_info=True)
+        Returns:
+            Seconds since last change, or infinity if no changes detected
+        """
+        with self._lock:
+            if self._last_change_time == 0.0:
+                return float("inf")
+            return time.time() - self._last_change_time
 
     def start(self) -> None:
         """Start watching filesystem."""
@@ -79,17 +59,8 @@ class DebouncedWatcher:
         self._observer.start()
         logger.info(f"Started watching: {self.watch_path}")
 
-        # Initial trigger after debounce period (if files exist)
-        self._on_file_change()
-
     def stop(self) -> None:
-        """Stop watching and cancel pending timer."""
-        self._stopped = True
-
-        with self._timer_lock:
-            if self._timer and self._timer.is_alive():
-                self._timer.cancel()
-
+        """Stop watching."""
         if self._observer:
             self._observer.stop()
             self._observer.join()

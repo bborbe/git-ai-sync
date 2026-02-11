@@ -101,19 +101,19 @@ def configure_logging(level: str) -> None:
 
 
 def cmd_watch(args: argparse.Namespace) -> None:
-    """Start watching and syncing with debounced filesystem monitoring."""
+    """Start watching and syncing with debounce-gated polling."""
     import time
     from pathlib import Path
 
     from git_ai_sync import git_operations
     from git_ai_sync.config import Config
-    from git_ai_sync.file_watcher import DebouncedWatcher
+    from git_ai_sync.file_watcher import ChangeTracker
 
     config = Config()
     repo_path = Path(args.path).resolve()
-    debounce_seconds = float(args.interval)
+    interval = float(args.interval)
 
-    logger.info(f"Starting watch mode: path={repo_path}, debounce={debounce_seconds}s")
+    logger.info(f"Starting watch mode: path={repo_path}, interval={interval}s")
 
     # Validate git repository once at startup
     git_repo = git_operations.find_git_repo(repo_path)
@@ -123,93 +123,84 @@ def cmd_watch(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     print(f"Watching: {git_repo}")
-    print(f"Debounce: {debounce_seconds}s (waits for quiet period)")
+    print(f"Interval: {interval}s (skips if actively editing)")
     print("Press Ctrl+C to stop")
     print()
 
-    sync_count = 0
+    # Start filesystem watcher to track changes
+    tracker = ChangeTracker(git_repo)
+    tracker.start()
 
-    def do_sync() -> None:
-        """Perform sync operation."""
-        nonlocal sync_count
-        sync_count += 1
-
-        try:
-            # Check for changes
-            has_changes = git_operations.has_changes(git_repo)
-
-            if not has_changes:
-                logger.info("No changes to sync")
-                print(f"[{sync_count}] No changes to sync")
-                return
-
-            print(f"\n[{sync_count}] Syncing changes...")
-
-            # Stage all changes
-            git_operations.stage_all(git_repo)
-            logger.info("Staged")
-
-            # Commit with auto-generated message
-            commit_msg = git_operations.generate_commit_message(config.commit_prefix)
-            git_operations.commit(git_repo, commit_msg)
-            logger.info(f"Committed: {commit_msg}")
-            print(f"  Committed: {commit_msg}")
-
-            # Pull with rebase
-            try:
-                git_operations.pull_rebase(git_repo)
-                logger.info("Pulled")
-                print("  Pulled with rebase")
-            except git_operations.GitError as e:
-                if "conflicts" in str(e).lower():
-                    logger.error(f"Rebase conflicts detected: {e}")
-                    print("\n  Rebase conflicts detected")
-                    print(f"  Run 'git-ai-sync resolve {git_repo}' to resolve")
-                    print("  Stopping watch mode")
-                    sys.exit(1)
-                raise
-
-            # Push to remote
-            git_operations.push(git_repo)
-            logger.info("Pushed")
-            print("  Pushed to remote")
-            print("  Sync completed\n")
-
-        except git_operations.GitError as e:
-            # Log error but continue watching
-            logger.error(f"Sync failed: {e}")
-            print(f"\n  Sync failed: {e}")
-            print("  Continuing to watch...\n")
-
-        except Exception as e:
-            # Unexpected error - log but continue
-            logger.exception(f"Unexpected error: {e}")
-            print(f"\n  Unexpected error: {e}")
-            print("  Continuing to watch...\n")
-
-    # Start debounced watcher
-    watcher = DebouncedWatcher(
-        watch_path=git_repo,
-        callback=do_sync,
-        debounce_seconds=debounce_seconds,
-    )
-
+    iteration = 0
     try:
-        watcher.start()
-        print("Watching for changes...\n")
-
-        # Keep main thread alive
         while True:
-            time.sleep(1)
+            iteration += 1
+            time.sleep(interval)
+
+            # Check if files changed recently (within interval)
+            seconds_since_change = tracker.get_seconds_since_last_change()
+            if seconds_since_change < interval:
+                logger.info(
+                    f"Skipping sync - files changed {seconds_since_change:.1f}s ago (still editing)"
+                )
+                print(f"[{iteration}] Skipping - still editing", end="\r", flush=True)
+                continue
+
+            # Safe to sync - no recent changes
+            try:
+                # Check for changes
+                has_changes = git_operations.has_changes(git_repo)
+
+                if not has_changes:
+                    logger.debug("No changes to sync")
+                    print(f"[{iteration}] No changes", end="\r", flush=True)
+                    continue
+
+                print(f"\n[{iteration}] Syncing...")
+
+                # Stage all changes
+                git_operations.stage_all(git_repo)
+
+                # Commit with auto-generated message
+                commit_msg = git_operations.generate_commit_message(config.commit_prefix)
+                git_operations.commit(git_repo, commit_msg)
+                print(f"  Committed: {commit_msg}")
+
+                # Pull with rebase
+                try:
+                    git_operations.pull_rebase(git_repo)
+                    print("  Pulled with rebase")
+                except git_operations.GitError as e:
+                    if "conflicts" in str(e).lower():
+                        logger.error(f"Rebase conflicts detected: {e}")
+                        print("\n  Rebase conflicts detected")
+                        print(f"  Run 'git-ai-sync resolve {git_repo}' to resolve")
+                        print("  Stopping watch mode")
+                        tracker.stop()
+                        sys.exit(1)
+                    raise
+
+                # Push to remote
+                git_operations.push(git_repo)
+                print("  Pushed")
+                print("  Sync completed\n")
+
+            except git_operations.GitError as e:
+                # Log error but continue watching
+                logger.error(f"Sync failed: {e}")
+                print(f"\n  Sync failed: {e}")
+                print("  Continuing to watch...\n")
+
+            except Exception as e:
+                # Unexpected error - log but continue
+                logger.exception(f"Unexpected error: {e}")
+                print(f"\n  Unexpected error: {e}")
+                print("  Continuing to watch...\n")
 
     except KeyboardInterrupt:
         print("\n\nStopping watch mode")
         logger.info("Watch mode stopped by user")
-        watcher.stop()
-    except Exception as e:
-        logger.exception(f"Watch mode error: {e}")
-        watcher.stop()
-        raise
+        tracker.stop()
 
 
 def cmd_sync(args: argparse.Namespace) -> None:
