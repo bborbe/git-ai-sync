@@ -24,7 +24,7 @@ class Config(BaseSettings):
         alias="ANTHROPIC_API_KEY",
         description="Anthropic API key for AI conflict resolution",
     )
-    model: str = Field(default="claude-sonnet-4-5", description="Claude model to use")
+    model: str = Field(default="claude-sonnet-4-5-20250929", description="Claude model to use")
 
     # Logging
     log_level: str = Field(default="INFO", description="Logging level")

@@ -164,7 +164,6 @@ def cmd_watch(args: argparse.Namespace) -> None:
                     if "conflicts" in str(e).lower():
                         logger.error(f"Rebase conflicts detected: {e}")
                         logger.error(f"Run 'git-ai-sync resolve {git_repo}' to resolve")
-                        tracker.stop()
                         sys.exit(1)
                     raise
 
@@ -201,8 +200,7 @@ def cmd_watch(args: argparse.Namespace) -> None:
                 logger.exception(f"Unexpected error: {e}")
                 logger.info("Continuing to watch...")
 
-    except KeyboardInterrupt:
-        logger.info("Stopping watch mode")
+    finally:
         tracker.stop()
 
 
@@ -310,45 +308,45 @@ def cmd_resolve(args: argparse.Namespace) -> None:
     logger.info(f"Resolving conflicts with Claude ({config.model})...")
 
     # 4. Resolve conflicts
-    async def run_resolution() -> bool:
-        try:
-            resolved_count, failed_files = await conflict_resolver.resolve_all_conflicts(
-                git_repo, config.model
-            )
+    async def run_resolution() -> tuple[int, list[str]]:
+        return await conflict_resolver.resolve_all_conflicts(git_repo, config.model)
 
-            if failed_files:
-                logger.warning(f"Failed to resolve {len(failed_files)} files")
-                for file in failed_files:
-                    logger.warning(f"  {file}")
-                return False
-
-            if resolved_count == 0:
-                logger.info("No conflicts found")
-                return False
-
-            logger.info(f"Resolved {resolved_count} files")
-
-            # 5. Continue rebase
-            logger.info("Continuing rebase...")
-            await conflict_resolver.continue_rebase(git_repo)
-            logger.info("Rebase continued")
-
-            # 6. Push changes
-            logger.info("Pushing to remote...")
-            git_operations.push(git_repo)
-            logger.info("Pushed")
-
-            return True
-
-        except conflict_resolver.ConflictError as e:
-            logger.error(f"Resolution failed: {e}")
-            return False
-
-    success = asyncio.run(run_resolution())
-    if success:
-        logger.info(f"Conflicts resolved: {git_repo}")
-    else:
+    try:
+        resolved_count, failed_files = asyncio.run(run_resolution())
+    except conflict_resolver.ConflictError as e:
+        logger.error(f"Resolution failed: {e}")
         sys.exit(1)
+
+    if failed_files:
+        logger.warning(f"Failed to resolve {len(failed_files)} files")
+        for file in failed_files:
+            logger.warning(f"  {file}")
+        sys.exit(1)
+
+    if resolved_count == 0:
+        logger.info("No conflicts found")
+        sys.exit(1)
+
+    logger.info(f"Resolved {resolved_count} files")
+
+    # 5. Continue rebase
+    logger.info("Continuing rebase...")
+    try:
+        conflict_resolver.do_continue_rebase(git_repo)
+    except conflict_resolver.ConflictError as e:
+        logger.error(f"Rebase continuation failed: {e}")
+        sys.exit(1)
+    logger.info("Rebase continued")
+
+    # 6. Push changes
+    logger.info("Pushing to remote...")
+    try:
+        git_operations.push(git_repo)
+    except git_operations.GitError as e:
+        logger.error(f"Failed to push: {e}")
+        sys.exit(1)
+    logger.info("Pushed")
+    logger.info(f"Conflicts resolved: {git_repo}")
 
 
 def cmd_status(args: argparse.Namespace) -> None:

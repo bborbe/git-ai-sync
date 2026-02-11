@@ -72,8 +72,6 @@ class _ChangeEventHandler(FileSystemEventHandler):
 
     def __init__(self, on_change: Callable[[], None]):
         self.on_change = on_change
-        # Track last event to avoid duplicate events
-        self._last_event: tuple[str, float] | None = None
 
     def _should_ignore(self, event: FileSystemEvent) -> bool:
         """Check if event should be ignored."""

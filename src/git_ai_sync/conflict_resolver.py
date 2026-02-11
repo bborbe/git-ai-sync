@@ -56,7 +56,7 @@ def parse_conflict_markers(content: str) -> list[dict[str, str]]:
 async def resolve_conflict_with_claude(
     file_path: str,
     content: str,
-    model: str = "claude-sonnet-4-5",
+    model: str = "claude-sonnet-4-5-20250929",
 ) -> str:
     """Resolve conflicts in a file using Claude.
 
@@ -143,7 +143,7 @@ Return ONLY the file content, no explanations, no markdown code blocks.
 
 async def resolve_all_conflicts(
     repo_path: Path,
-    model: str = "claude-sonnet-4-5",
+    model: str = "claude-sonnet-4-5-20250929",
 ) -> tuple[int, list[str]]:
     """Resolve all conflicts in repository using Claude.
 
@@ -188,14 +188,18 @@ async def resolve_all_conflicts(
             resolved_count += 1
             logger.info(f"Resolved and staged {file_path}")
 
-        except Exception as e:
+        except git_operations.GitError as e:
+            logger.error(f"Failed to stage {file_path}: {e}")
+            failed_files.append(file_path)
+
+        except ConflictError as e:
             logger.error(f"Failed to resolve {file_path}: {e}")
             failed_files.append(file_path)
 
     return resolved_count, failed_files
 
 
-async def continue_rebase(repo_path: Path) -> None:
+def do_continue_rebase(repo_path: Path) -> None:
     """Continue rebase after resolving conflicts.
 
     Args:

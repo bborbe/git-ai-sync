@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.2.5
+
+- Fix bare except in conflict_resolver catching GitError as resolve failure
+- Fix tracker thread leak on non-keyboard exit paths in watch mode
+- Fix outdated "not implemented yet" message in pull_rebase error
+- Update default Claude model to claude-sonnet-4-5-20250929
+- Make continue_rebase sync (was needlessly async)
+- Remove dead _last_event field from file watcher
+
 ## v0.2.4
 
 - Extract subprocess calls from __main__.py and conflict_resolver into git_operations

@@ -117,9 +117,7 @@ def pull_rebase(repo_path: Path) -> None:
     if result.returncode != 0:
         # Check if it's a conflict
         if is_in_rebase(repo_path):
-            raise GitError(
-                "Rebase conflicts detected (not implemented yet - use 'resolve' command)"
-            )
+            raise GitError("Rebase conflicts detected - use 'git-ai-sync resolve' to resolve")
         raise GitError(f"Failed to pull: {result.stderr}")
 
 
