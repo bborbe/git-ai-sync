@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.2.6
+
+- Catch specific ClaudeSDKError instead of bare Exception in conflict resolver
+- Add How It Works, Prerequisites, and Troubleshooting sections to README
+- Update model default in README configuration docs
+- Link LICENSE file from README license section
+
 ## v0.2.5
 
 - Fix bare except in conflict_resolver catching GitError as resolve failure

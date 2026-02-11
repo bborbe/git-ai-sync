@@ -4,7 +4,13 @@ import logging
 import re
 from pathlib import Path
 
-from claude_code_sdk import AssistantMessage, ClaudeCodeOptions, ClaudeSDKClient, TextBlock
+from claude_code_sdk import (
+    AssistantMessage,
+    ClaudeCodeOptions,
+    ClaudeSDKClient,
+    ClaudeSDKError,
+    TextBlock,
+)
 
 from git_ai_sync import git_operations
 
@@ -120,7 +126,7 @@ Return ONLY the file content, no explanations, no markdown code blocks.
                         if isinstance(block, TextBlock):
                             response_text += block.text
 
-    except Exception as e:
+    except ClaudeSDKError as e:
         raise ConflictError(f"Claude API call failed: {e}") from e
 
     if not response_text:

@@ -2,6 +2,19 @@
 
 Automatic Git repository sync with AI-powered conflict resolution.
 
+## How It Works
+
+1. **Watch** - Polls repository at regular intervals for changes
+2. **Debounce** - Skips sync when files changed recently (active editing)
+3. **Sync** - Stages, commits, pulls with rebase, and pushes
+4. **Resolve** - On rebase conflicts, invokes Claude to intelligently merge
+
+## Prerequisites
+
+- Python 3.14+
+- Git installed and configured with remote
+- `ANTHROPIC_API_KEY` environment variable (only for conflict resolution)
+
 ## Usage
 
 Run directly from GitHub using `uvx`:
@@ -51,17 +64,32 @@ pipx install git+https://github.com/bborbe/git-ai-sync
 
 - `ANTHROPIC_API_KEY` - Required for AI conflict resolution (resolve command)
 - `GIT_AI_SYNC_INTERVAL` - Sync interval in seconds (default: 30)
-- `GIT_AI_SYNC_MODEL` - Claude model (default: claude-sonnet-4-5)
+- `GIT_AI_SYNC_MODEL` - Claude model (default: claude-sonnet-4-5-20250929)
 - `GIT_AI_SYNC_COMMIT_PREFIX` - Commit message prefix (default: "auto")
+
+## Troubleshooting
+
+**Watch mode shows no activity:**
+- Verify the path is a git repository with a configured remote
+- Check `--interval` is not too high
+
+**Conflict resolution fails:**
+- Ensure `ANTHROPIC_API_KEY` is set and valid
+- Run `git-ai-sync status` to confirm rebase state
+- Check logs for Claude API errors
+
+**Changes not syncing:**
+- Debounce may be active (files changed within the interval window)
+- Run `git-ai-sync sync` manually to force a one-time sync
 
 ## Development
 
 ```bash
-make install  # Install dependencies
-make test     # Run tests
-make precommit  # Run all checks
+make install    # Install dependencies
+make test       # Run tests
+make precommit  # Run all checks (format, test, lint, typecheck)
 ```
 
 ## License
 
-BSD-2-Clause
+[BSD-2-Clause](LICENSE)
