@@ -109,9 +109,86 @@ def cmd_watch(args: argparse.Namespace) -> None:
 
 def cmd_sync(args: argparse.Namespace) -> None:
     """Run sync once."""
-    logger.info(f"Running sync: path={args.path}")
-    # TODO: implement sync
-    print("Sync not implemented yet")
+    from pathlib import Path
+
+    from git_ai_sync import git_operations
+    from git_ai_sync.config import Config
+
+    config = Config()
+    repo_path = Path(args.path).resolve()
+
+    logger.info(f"Running sync: path={repo_path}")
+
+    # 1. Validate git repository
+    git_repo = git_operations.find_git_repo(repo_path)
+    if not git_repo:
+        logger.error(f"Not a git repository: {repo_path}")
+        print(f"❌ Not a git repository: {repo_path}")
+        sys.exit(1)
+
+    logger.info(f"Git repository: {git_repo}")
+    current_branch = git_operations.get_current_branch(git_repo)
+    logger.info(f"Current branch: {current_branch}")
+
+    # 2. Check for uncommitted changes
+    if not git_operations.has_changes(git_repo):
+        logger.info("No changes to sync")
+        print("✓ No changes to sync")
+        return
+
+    # 3. Stage all changes
+    logger.info("Staging changes...")
+    print("→ Staging changes...")
+    try:
+        git_operations.stage_all(git_repo)
+        logger.info("✓ Staged")
+    except git_operations.GitError as e:
+        logger.error(f"Failed to stage: {e}")
+        print(f"❌ Failed to stage: {e}")
+        sys.exit(1)
+
+    # 4. Commit with auto-generated message
+    commit_msg = git_operations.generate_commit_message(config.commit_prefix)
+    logger.info(f"Committing: {commit_msg}")
+    print(f"→ Committing: {commit_msg}")
+    try:
+        git_operations.commit(git_repo, commit_msg)
+        logger.info("✓ Committed")
+    except git_operations.GitError as e:
+        logger.error(f"Failed to commit: {e}")
+        print(f"❌ Failed to commit: {e}")
+        sys.exit(1)
+
+    # 5. Pull with rebase
+    logger.info("Pulling with rebase...")
+    print("→ Pulling with rebase...")
+    try:
+        git_operations.pull_rebase(git_repo)
+        logger.info("✓ Pulled")
+        print("✓ Pulled")
+    except git_operations.GitError as e:
+        if "conflicts" in str(e).lower():
+            logger.error(f"Rebase conflicts detected: {e}")
+            print(f"❌ {e}")
+            print("💡 Run 'git-ai-sync resolve' to resolve conflicts (not implemented yet)")
+            sys.exit(1)
+        logger.error(f"Failed to pull: {e}")
+        print(f"❌ Failed to pull: {e}")
+        sys.exit(1)
+
+    # 6. Push to remote
+    logger.info("Pushing to remote...")
+    print("→ Pushing to remote...")
+    try:
+        git_operations.push(git_repo)
+        logger.info("✓ Pushed")
+        print("✓ Pushed")
+    except git_operations.GitError as e:
+        logger.error(f"Failed to push: {e}")
+        print(f"❌ Failed to push: {e}")
+        sys.exit(1)
+
+    print(f"✅ Sync completed: {git_repo}")
 
 
 def cmd_resolve(args: argparse.Namespace) -> None:
@@ -123,9 +200,42 @@ def cmd_resolve(args: argparse.Namespace) -> None:
 
 def cmd_status(args: argparse.Namespace) -> None:
     """Show status."""
-    logger.info(f"Showing status: path={args.path}")
-    # TODO: implement status
-    print("Status not implemented yet")
+    from pathlib import Path
+
+    from git_ai_sync import git_operations
+
+    repo_path = Path(args.path).resolve()
+    logger.info(f"Showing status: path={repo_path}")
+
+    # Validate git repository
+    git_repo = git_operations.find_git_repo(repo_path)
+    if not git_repo:
+        print(f"❌ Not a git repository: {repo_path}")
+        sys.exit(1)
+
+    print(f"Repository: {git_repo}")
+
+    # Get current branch
+    try:
+        branch = git_operations.get_current_branch(git_repo)
+        print(f"Branch: {branch}")
+    except git_operations.GitError as e:
+        print(f"⚠️  Unable to determine branch: {e}")
+
+    # Check for changes
+    try:
+        has_changes = git_operations.has_changes(git_repo)
+        if has_changes:
+            print("Status: Uncommitted changes")
+        else:
+            print("Status: Clean (no changes)")
+    except git_operations.GitError as e:
+        print(f"⚠️  Unable to check status: {e}")
+
+    # Check if in rebase
+    if git_operations.is_in_rebase(git_repo):
+        print("⚠️  Currently in rebase state")
+        print("   Run 'git-ai-sync resolve' to resolve conflicts")
 
 
 def cmd_config(args: argparse.Namespace) -> None:
