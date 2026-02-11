@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.2.1
+
+- Update README with uvx usage examples from GitHub
+- Add Features section explaining auto-sync and debounce-gating
+- Add local development usage with --refresh flag
+
 ## v0.2.0
 
 - Add full sync command implementation (stage, commit, pull --rebase, push)

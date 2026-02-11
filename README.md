@@ -2,45 +2,57 @@
 
 Automatic Git repository sync with AI-powered conflict resolution.
 
-## Installation
-
-```bash
-pipx install git-ai-sync
-```
-
 ## Usage
 
+Run directly from GitHub using `uvx`:
+
 ```bash
-# Start watching and syncing
-git-ai-sync watch
+# Start watching and syncing (default: current directory, 30s interval)
+uvx --from git+https://github.com/bborbe/git-ai-sync git-ai-sync watch
+
+# Watch specific directory with custom interval
+uvx --from git+https://github.com/bborbe/git-ai-sync git-ai-sync watch /path/to/repo --interval 60
 
 # Run sync once
-git-ai-sync sync
+uvx --from git+https://github.com/bborbe/git-ai-sync git-ai-sync sync /path/to/repo
 
 # Resolve conflicts in current repo
-git-ai-sync resolve
+uvx --from git+https://github.com/bborbe/git-ai-sync git-ai-sync resolve
 
 # Show status
-git-ai-sync status
-
-# Configure settings
-git-ai-sync config --interval 60 --model claude-sonnet-4-5
+uvx --from git+https://github.com/bborbe/git-ai-sync git-ai-sync status
 ```
+
+### Local Development
+
+```bash
+# Use local version with --refresh to pick up changes
+uvx --refresh --from ~/path/to/git-ai-sync git-ai-sync watch . --interval 5
+```
+
+### Installation (Optional)
+
+For permanent installation:
+
+```bash
+pipx install git+https://github.com/bborbe/git-ai-sync
+```
+
+## Features
+
+- **Auto-sync**: Polls repository at regular intervals to sync changes
+- **Debounce-gating**: Skips sync during active editing (when files changed recently)
+- **AI conflict resolution**: Uses Claude to intelligently resolve merge conflicts
+- **Rebase workflow**: Uses `git pull --rebase` to maintain clean history
 
 ## Configuration
 
-The tool reads configuration from (in order of priority):
-
-1. Command line arguments
-2. Environment variables (`GIT_AI_SYNC_*`)
-3. Local config file (`.git-ai-sync.toml` in repo root)
-4. Global config file (`~/.config/git-ai-sync/config.toml`)
-
 ### Environment Variables
 
-- `ANTHROPIC_API_KEY` - Required for AI conflict resolution
-- `GIT_AI_SYNC_INTERVAL` - Override sync interval (default: 30)
-- `GIT_AI_SYNC_MODEL` - Override Claude model (default: claude-sonnet-4-5)
+- `ANTHROPIC_API_KEY` - Required for AI conflict resolution (resolve command)
+- `GIT_AI_SYNC_INTERVAL` - Sync interval in seconds (default: 30)
+- `GIT_AI_SYNC_MODEL` - Claude model (default: claude-sonnet-4-5)
+- `GIT_AI_SYNC_COMMIT_PREFIX` - Commit message prefix (default: "auto")
 
 ## Development
 
