@@ -102,9 +102,94 @@ def configure_logging(level: str) -> None:
 
 def cmd_watch(args: argparse.Namespace) -> None:
     """Start watching and syncing."""
-    logger.info(f"Starting watch mode: path={args.path}, interval={args.interval}s")
-    # TODO: implement watch loop
-    print("Watch mode not implemented yet")
+    import time
+    from pathlib import Path
+
+    from git_ai_sync import git_operations
+    from git_ai_sync.config import Config
+
+    config = Config()
+    repo_path = Path(args.path).resolve()
+    interval = args.interval
+
+    logger.info(f"Starting watch mode: path={repo_path}, interval={interval}s")
+
+    # Validate git repository once at startup
+    git_repo = git_operations.find_git_repo(repo_path)
+    if not git_repo:
+        logger.error(f"Not a git repository: {repo_path}")
+        print(f"❌ Not a git repository: {repo_path}")
+        sys.exit(1)
+
+    print(f"👁️  Watching: {git_repo}")
+    print(f"⏱️  Interval: {interval}s")
+    print("Press Ctrl+C to stop")
+    print()
+
+    iteration = 0
+    while True:
+        iteration += 1
+        logger.info(f"Sync iteration {iteration}")
+
+        try:
+            # Check for changes
+            has_changes = git_operations.has_changes(git_repo)
+
+            if not has_changes:
+                logger.debug("No changes detected")
+                print(f"[{iteration}] No changes", end="\r", flush=True)
+            else:
+                print(f"\n[{iteration}] Changes detected, syncing...")
+
+                # Stage all changes
+                git_operations.stage_all(git_repo)
+                logger.info("✓ Staged")
+
+                # Commit with auto-generated message
+                commit_msg = git_operations.generate_commit_message(config.commit_prefix)
+                git_operations.commit(git_repo, commit_msg)
+                logger.info(f"✓ Committed: {commit_msg}")
+                print(f"  ✓ Committed: {commit_msg}")
+
+                # Pull with rebase
+                try:
+                    git_operations.pull_rebase(git_repo)
+                    logger.info("✓ Pulled")
+                    print("  ✓ Pulled with rebase")
+                except git_operations.GitError as e:
+                    if "conflicts" in str(e).lower():
+                        logger.error(f"Rebase conflicts detected: {e}")
+                        print("\n  ❌ Rebase conflicts detected")
+                        print(f"  💡 Run 'git-ai-sync resolve {git_repo}' to resolve")
+                        print("  ⏸️  Stopping watch mode")
+                        sys.exit(1)
+                    raise
+
+                # Push to remote
+                git_operations.push(git_repo)
+                logger.info("✓ Pushed")
+                print("  ✓ Pushed to remote")
+                print("  ✅ Sync completed\n")
+
+        except git_operations.GitError as e:
+            # Log error but continue watching
+            logger.error(f"Sync failed: {e}")
+            print(f"\n  ⚠️  Sync failed: {e}")
+            print("  Continuing to watch...\n")
+
+        except KeyboardInterrupt:
+            print("\n\n✋ Stopping watch mode")
+            logger.info("Watch mode stopped by user")
+            break
+
+        except Exception as e:
+            # Unexpected error - log but continue
+            logger.exception(f"Unexpected error: {e}")
+            print(f"\n  ⚠️  Unexpected error: {e}")
+            print("  Continuing to watch...\n")
+
+        # Wait for next iteration
+        time.sleep(interval)
 
 
 def cmd_sync(args: argparse.Namespace) -> None:
