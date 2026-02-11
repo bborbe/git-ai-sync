@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.2.3
+
+- Replace all print() with structured logging via logging module
+- Extract logging_setup.py module following python-skeleton pattern
+- Add AST-based test to prevent print() in production code
+- Add logging configuration tests (5 tests)
+- Remove emojis from log messages
+- Remove duplicate print+logger pairs
+
 ## v0.2.2
 
 - Enhance watch mode output with detailed status at each iteration
