@@ -294,9 +294,11 @@ def cmd_resolve(args: argparse.Namespace) -> None:
         logger.error(f"Not a git repository: {repo_path}")
         sys.exit(1)
 
-    # 2. Check if in rebase state
-    if not git_operations.is_in_rebase(git_repo):
-        logger.error("Not in rebase state. Run 'git-ai-sync sync' to sync changes.")
+    # 2. Check if in conflict state (rebase or merge)
+    if not git_operations.is_in_conflict_state(git_repo):
+        logger.error(
+            "Not in conflict state (rebase or merge). Run 'git-ai-sync sync' to sync changes."
+        )
         sys.exit(1)
 
     # 3. Check for ANTHROPIC_API_KEY

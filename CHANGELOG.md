@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.3.0
+
+- Add merge conflict support (both rebase and merge conflicts now handled)
+- Add `is_in_merge()` function to detect merge state
+- Add `is_in_conflict_state()` to check for any conflict type
+- Add `continue_merge()` for merge continuation
+- Update conflict resolver to dispatch to correct continuation method
+- Add 8 new tests for merge state detection
+
 ## v0.2.7
 
 - Add comprehensive test suites for config, file_watcher, conflict_resolver, and __main__ (55 new tests)

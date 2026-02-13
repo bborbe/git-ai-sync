@@ -156,6 +156,31 @@ def is_in_rebase(repo_path: Path) -> bool:
     return rebase_merge.exists() or rebase_apply.exists()
 
 
+def is_in_merge(repo_path: Path) -> bool:
+    """Check if repository is currently in merge state.
+
+    Args:
+        repo_path: Path to git repository
+
+    Returns:
+        True if in merge state, False otherwise
+    """
+    merge_head = repo_path / ".git" / "MERGE_HEAD"
+    return merge_head.exists()
+
+
+def is_in_conflict_state(repo_path: Path) -> bool:
+    """Check if repository is in any conflict state (rebase or merge).
+
+    Args:
+        repo_path: Path to git repository
+
+    Returns:
+        True if in rebase or merge conflict state, False otherwise
+    """
+    return is_in_rebase(repo_path) or is_in_merge(repo_path)
+
+
 def abort_rebase(repo_path: Path) -> None:
     """Abort current rebase operation.
 
@@ -373,6 +398,27 @@ def continue_rebase(repo_path: Path) -> None:
 
     if result.returncode != 0:
         raise GitError(f"Failed to continue rebase: {result.stderr}")
+
+
+def continue_merge(repo_path: Path) -> None:
+    """Continue merge after resolving conflicts.
+
+    Args:
+        repo_path: Path to git repository
+
+    Raises:
+        GitError: If merge continuation fails
+    """
+    result = subprocess.run(
+        ["git", "commit", "--no-edit"],
+        cwd=repo_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    if result.returncode != 0:
+        raise GitError(f"Failed to continue merge: {result.stderr}")
 
 
 def generate_commit_message(prefix: str = "auto") -> str:

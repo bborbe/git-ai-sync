@@ -9,6 +9,7 @@ import pytest
 from git_ai_sync.git_operations import (
     GitError,
     commit,
+    continue_merge,
     find_git_repo,
     generate_commit_message,
     get_changed_files_short,
@@ -17,6 +18,8 @@ from git_ai_sync.git_operations import (
     get_current_branch,
     get_head_commit,
     has_changes,
+    is_in_conflict_state,
+    is_in_merge,
     is_in_rebase,
     pull_rebase,
     push,
@@ -154,6 +157,23 @@ class TestContinueRebase:
             continue_rebase(REPO)
 
 
+class TestContinueMerge:
+    def test_continues_merge(self) -> None:
+        with patch("subprocess.run", return_value=_mock_result()) as mock:
+            continue_merge(REPO)
+            assert mock.call_args[0][0] == ["git", "commit", "--no-edit"]
+
+    def test_raises_on_failure(self) -> None:
+        with (
+            patch(
+                "subprocess.run",
+                return_value=_mock_result(returncode=1, stderr="conflicts"),
+            ),
+            pytest.raises(GitError),
+        ):
+            continue_merge(REPO)
+
+
 class TestHasChanges:
     def test_returns_true_with_changes(self) -> None:
         with patch(
@@ -274,6 +294,37 @@ class TestIsInRebase:
     def test_false_when_clean(self, temp_dir: Path) -> None:
         (temp_dir / ".git").mkdir(parents=True)
         assert is_in_rebase(temp_dir) is False
+
+
+class TestIsInMerge:
+    def test_true_when_merge_head_exists(self, temp_dir: Path) -> None:
+        (temp_dir / ".git").mkdir(parents=True)
+        (temp_dir / ".git" / "MERGE_HEAD").touch()
+        assert is_in_merge(temp_dir) is True
+
+    def test_false_when_no_merge_head(self, temp_dir: Path) -> None:
+        (temp_dir / ".git").mkdir(parents=True)
+        assert is_in_merge(temp_dir) is False
+
+
+class TestIsInConflictState:
+    def test_true_when_in_rebase(self, temp_dir: Path) -> None:
+        (temp_dir / ".git" / "rebase-merge").mkdir(parents=True)
+        assert is_in_conflict_state(temp_dir) is True
+
+    def test_true_when_in_merge(self, temp_dir: Path) -> None:
+        (temp_dir / ".git").mkdir(parents=True)
+        (temp_dir / ".git" / "MERGE_HEAD").touch()
+        assert is_in_conflict_state(temp_dir) is True
+
+    def test_true_when_both(self, temp_dir: Path) -> None:
+        (temp_dir / ".git" / "rebase-merge").mkdir(parents=True)
+        (temp_dir / ".git" / "MERGE_HEAD").touch()
+        assert is_in_conflict_state(temp_dir) is True
+
+    def test_false_when_clean(self, temp_dir: Path) -> None:
+        (temp_dir / ".git").mkdir(parents=True)
+        assert is_in_conflict_state(temp_dir) is False
 
 
 class TestFindGitRepo:

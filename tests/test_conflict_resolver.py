@@ -235,6 +235,6 @@ class TestDoContinueRebase:
         mock_git.get_conflicted_files.return_value = []
         with (
             patch("git_ai_sync.conflict_resolver.git_operations", mock_git),
-            pytest.raises(ConflictError, match="Failed to continue rebase"),
+            pytest.raises(ConflictError, match="Failed to continue"),
         ):
             do_continue_rebase(temp_dir)

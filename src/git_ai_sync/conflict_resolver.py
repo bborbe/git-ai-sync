@@ -206,20 +206,26 @@ async def resolve_all_conflicts(
 
 
 def do_continue_rebase(repo_path: Path) -> None:
-    """Continue rebase after resolving conflicts.
+    """Continue conflict resolution (rebase or merge).
 
     Args:
         repo_path: Path to git repository
 
     Raises:
-        ConflictError: If rebase continuation fails
+        ConflictError: If continuation fails
     """
     try:
-        git_operations.continue_rebase(repo_path)
+        # Detect state and use appropriate continue command
+        if git_operations.is_in_rebase(repo_path):
+            git_operations.continue_rebase(repo_path)
+        elif git_operations.is_in_merge(repo_path):
+            git_operations.continue_merge(repo_path)
+        else:
+            raise ConflictError("Not in rebase or merge state")
     except git_operations.GitError as e:
         conflicted = git_operations.get_conflicted_files(repo_path)
         if conflicted:
             raise ConflictError(
-                f"Rebase failed - still have conflicts in: {', '.join(conflicted)}"
+                f"Continuation failed - still have conflicts in: {', '.join(conflicted)}"
             ) from e
-        raise ConflictError(f"Failed to continue rebase: {e}") from e
+        raise ConflictError(f"Failed to continue: {e}") from e
