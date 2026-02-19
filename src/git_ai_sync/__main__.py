@@ -301,12 +301,6 @@ def cmd_resolve(args: argparse.Namespace) -> None:
         )
         sys.exit(1)
 
-    # 3. Check for ANTHROPIC_API_KEY
-    if not config.anthropic_api_key:
-        logger.error("ANTHROPIC_API_KEY environment variable not set")
-        logger.error("Set it with: export ANTHROPIC_API_KEY=your_key")
-        sys.exit(1)
-
     logger.info(f"Resolving conflicts with Claude ({config.model})...")
 
     # 4. Resolve conflicts

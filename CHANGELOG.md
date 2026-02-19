@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.3.1
+
+- Remove unnecessary ANTHROPIC_API_KEY check (SDK uses Claude Code auth automatically)
+
 ## v0.3.0
 
 - Add merge conflict support (both rebase and merge conflicts now handled)
