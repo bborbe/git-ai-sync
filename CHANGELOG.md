@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## v0.3.2
 
 ### Added
 - `doctor` command to verify Claude Code CLI setup and dependencies
