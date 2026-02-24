@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from git_ai_sync.__main__ import (
+    cmd_doctor,
     cmd_status,
     cmd_sync,
     cmd_version,
@@ -213,3 +214,81 @@ class TestMainDispatch:
         ):
             main()
             mock_cmd.assert_called_once()
+
+
+class TestCmdDoctor:
+    def test_all_checks_pass(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Test doctor command when all checks pass."""
+        mock_git = _mock_git_ops()
+        mock_git.find_git_repo.return_value = Path("/fake/repo")
+
+        with (
+            patch("shutil.which", lambda cmd: f"/usr/bin/{cmd}"),
+            patch("os.access", return_value=True),
+            patch(_GIT_OPS, mock_git),
+            patch("asyncio.run", return_value=True),
+            caplog.at_level("INFO"),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_doctor()
+
+        assert exc_info.value.code == 0
+        assert any("All checks passed" in r.message for r in caplog.records)
+
+    def test_cli_not_found(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Test doctor command when Claude CLI is not found."""
+        mock_git = _mock_git_ops()
+
+        def mock_which(cmd: str) -> str | None:
+            return "/usr/bin/node" if cmd == "node" else None
+
+        with (
+            patch("shutil.which", mock_which),
+            patch("pathlib.Path.exists", return_value=False),
+            patch(_GIT_OPS, mock_git),
+            caplog.at_level("ERROR"),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_doctor()
+
+        assert exc_info.value.code == 1
+        assert any("Claude Code CLI not found" in r.message for r in caplog.records)
+
+    def test_node_not_found(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Test doctor command when Node.js is not found."""
+        mock_git = _mock_git_ops()
+
+        def mock_which(cmd: str) -> str | None:
+            return "/usr/bin/claude" if cmd == "claude" else None
+
+        with (
+            patch("shutil.which", mock_which),
+            patch("os.access", return_value=True),
+            patch(_GIT_OPS, mock_git),
+            caplog.at_level("ERROR"),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_doctor()
+
+        assert exc_info.value.code == 1
+        assert any("Node.js not found" in r.message for r in caplog.records)
+
+    def test_not_in_git_repo(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Test doctor command when not in a git repository."""
+        mock_git = _mock_git_ops()
+        mock_git.find_git_repo.return_value = None
+
+        with (
+            patch("shutil.which", lambda cmd: f"/usr/bin/{cmd}"),
+            patch("os.access", return_value=True),
+            patch(_GIT_OPS, mock_git),
+            patch("asyncio.run", return_value=True),
+            caplog.at_level("INFO"),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_doctor()
+
+        # Git repo check is informational only, so all 4 required checks pass
+        assert exc_info.value.code == 0
+        assert any("not a git repository" in r.message for r in caplog.records)
+        assert any("All checks passed" in r.message for r in caplog.records)

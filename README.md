@@ -15,6 +15,23 @@ Automatic Git repository sync with AI-powered conflict resolution.
 - Git installed and configured with remote
 - `ANTHROPIC_API_KEY` environment variable (only for conflict resolution)
 
+## Verify Installation
+
+After installing, run the doctor command to verify everything is set up:
+
+```bash
+git-ai-sync doctor
+```
+
+This checks:
+- ✓ Claude Code CLI is installed and executable
+- ✓ Node.js is available
+- ✓ Git is installed
+- ✓ Claude Code session is authenticated
+- ✓ Current directory is a git repository (optional)
+
+If any checks fail, follow the error messages to fix them.
+
 ## Usage
 
 Run directly from GitHub using `uvx`:

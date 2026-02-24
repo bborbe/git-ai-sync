@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- `doctor` command to verify Claude Code CLI setup and dependencies
+
 ## v0.3.1
 
 - Remove unnecessary ANTHROPIC_API_KEY check (SDK uses Claude Code auth automatically)
