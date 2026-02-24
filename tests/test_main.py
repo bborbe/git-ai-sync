@@ -283,12 +283,12 @@ class TestCmdDoctor:
             patch("os.access", return_value=True),
             patch(_GIT_OPS, mock_git),
             patch("asyncio.run", return_value=True),
-            caplog.at_level("WARNING"),
+            caplog.at_level("INFO"),
             pytest.raises(SystemExit) as exc_info,
         ):
             cmd_doctor()
 
-        # Exits with 1 because 4/5 checks passed (git repo check failed)
-        assert exc_info.value.code == 1
+        # Git repo check is informational only, so all 4 required checks pass
+        assert exc_info.value.code == 0
         assert any("not a git repository" in r.message for r in caplog.records)
-        assert any("4/5 checks passed" in r.message for r in caplog.records)
+        assert any("All checks passed" in r.message for r in caplog.records)

@@ -416,7 +416,7 @@ def cmd_doctor() -> None:
     from claude_code_sdk import ClaudeCodeOptions, ClaudeSDKClient, ClaudeSDKError
 
     checks_passed = 0
-    checks_total = 5
+    checks_total = 4  # Git repo check is informational only, not counted
 
     # 1. Check Claude Code CLI binary
     logger.info("Checking Claude Code CLI installation...")
@@ -458,14 +458,14 @@ def cmd_doctor() -> None:
         logger.error("✗ Git not found")
         logger.error("  Install Git first")
 
-    # 4. Check current directory is a git repo (informational, not a failure)
+    # 4. Check current directory is a git repo (informational only, not counted toward pass/fail)
     from git_ai_sync import git_operations
 
     repo_path = Path(".").resolve()
     git_repo = git_operations.find_git_repo(repo_path)
     if git_repo:
         logger.info(f"✓ Current directory is a git repository: {git_repo}")
-        checks_passed += 1
+        # Note: Not incrementing checks_passed - this is informational only
     else:
         logger.warning("⚠ Current directory is not a git repository")
         logger.info("  (This is OK - just informational)")
