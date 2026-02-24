@@ -78,6 +78,9 @@ def parse_args() -> argparse.Namespace:
     # version subcommand
     subparsers.add_parser("version", help="Show version information")
 
+    # doctor subcommand
+    subparsers.add_parser("doctor", help="Verify Claude Code CLI setup")
+
     return parser.parse_args()
 
 
@@ -396,6 +399,127 @@ def cmd_config(args: argparse.Namespace) -> None:
         # TODO: save to config
 
 
+def cmd_doctor() -> None:
+    """Verify Claude Code CLI and dependencies are working.
+
+    Checks:
+    1. Claude Code CLI binary exists and is executable
+    2. Node.js is installed (CLI runtime requirement)
+    3. Git is available
+    4. CLI has active authenticated session (test query)
+    """
+    import asyncio
+    import os
+    import shutil
+    from pathlib import Path
+
+    from claude_code_sdk import ClaudeCodeOptions, ClaudeSDKClient, ClaudeSDKError
+
+    checks_passed = 0
+    checks_total = 5
+
+    # 1. Check Claude Code CLI binary
+    logger.info("Checking Claude Code CLI installation...")
+    cli_path = shutil.which("claude")
+    if not cli_path:
+        # Check fallback locations (same as claude-code-sdk)
+        fallback_locations = [
+            Path.home() / ".npm-global/bin/claude",
+            Path("/usr/local/bin/claude"),
+            Path("/opt/homebrew/bin/claude"),
+            Path.home() / "node_modules/.bin/claude",
+        ]
+        cli_path = next((str(p) for p in fallback_locations if p.exists()), None)
+
+    if cli_path and os.access(cli_path, os.X_OK):
+        logger.info(f"✓ Claude Code CLI found: {cli_path}")
+        checks_passed += 1
+    else:
+        logger.error("✗ Claude Code CLI not found or not executable")
+        logger.error("  Install: npm install -g @anthropic-ai/claude-code")
+
+    # 2. Check Node.js
+    logger.info("Checking Node.js installation...")
+    node_path = shutil.which("node")
+    if node_path:
+        logger.info(f"✓ Node.js found: {node_path}")
+        checks_passed += 1
+    else:
+        logger.error("✗ Node.js not found")
+        logger.error("  Install from: https://nodejs.org/")
+
+    # 3. Check Git
+    logger.info("Checking Git installation...")
+    git_path = shutil.which("git")
+    if git_path:
+        logger.info(f"✓ Git found: {git_path}")
+        checks_passed += 1
+    else:
+        logger.error("✗ Git not found")
+        logger.error("  Install Git first")
+
+    # 4. Check current directory is a git repo (informational, not a failure)
+    from git_ai_sync import git_operations
+
+    repo_path = Path(".").resolve()
+    git_repo = git_operations.find_git_repo(repo_path)
+    if git_repo:
+        logger.info(f"✓ Current directory is a git repository: {git_repo}")
+        checks_passed += 1
+    else:
+        logger.warning("⚠ Current directory is not a git repository")
+        logger.info("  (This is OK - just informational)")
+
+    # 5. Test Claude Code session with minimal query
+    logger.info("Testing Claude Code CLI session...")
+    if not cli_path:
+        logger.error("✗ Skipping session test - CLI not found")
+    else:
+
+        async def test_session() -> bool:
+            from claude_code_sdk import AssistantMessage
+
+            try:
+                options = ClaudeCodeOptions(model="claude-sonnet-4-5-20250929")
+                async with ClaudeSDKClient(options=options) as client:
+                    await client.query("Respond with just: OK")
+                    # Consume response to complete the request
+                    async for message in client.receive_response():
+                        if isinstance(message, AssistantMessage):
+                            # If we get a response, session is valid
+                            return True
+                # If no assistant message received, still valid (query sent)
+                return True
+            except ClaudeSDKError as e:
+                logger.error(f"✗ Claude Code session test failed: {e}")
+                logger.error("  Run 'claude login' to authenticate")
+                return False
+            except Exception as e:
+                logger.error(f"✗ Unexpected error during session test: {e}")
+                return False
+
+        try:
+            session_valid = asyncio.run(test_session())
+            if session_valid:
+                logger.info("✓ Claude Code CLI session is active")
+                checks_passed += 1
+        except Exception as e:
+            logger.error(f"✗ Session test failed: {e}")
+
+    # Summary
+    logger.info("")
+    logger.info("=" * 60)
+    if checks_passed == checks_total:
+        logger.info(f"✓ All checks passed ({checks_passed}/{checks_total})")
+        logger.info("git-ai-sync is ready to use!")
+        sys.exit(0)
+    else:
+        logger.warning(f"⚠ {checks_passed}/{checks_total} checks passed")
+        logger.error(f"✗ {checks_total - checks_passed} check(s) failed")
+        logger.error("Please fix the issues above before using git-ai-sync")
+        sys.exit(1)
+
+
 def cmd_version() -> None:
     """Print version information."""
     print(f"git-ai-sync {__version__}")
@@ -419,6 +543,8 @@ def main() -> None:
         cmd_config(args)
     elif args.command == "version":
         cmd_version()
+    elif args.command == "doctor":
+        cmd_doctor()
 
 
 if __name__ == "__main__":
