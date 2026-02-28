@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Fix watch mode failing to pull when local changes exist (commit before pull)
+
 ## v0.3.2
 
 ### Added
