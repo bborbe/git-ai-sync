@@ -144,7 +144,21 @@ def cmd_watch(args: argparse.Namespace) -> None:
                 # Check for local changes first
                 has_local_changes = git_operations.has_changes(git_repo)
 
-                # Always pull to get remote changes
+                # Commit local changes before pulling (pull --rebase requires clean tree)
+                if has_local_changes:
+                    changed_files = git_operations.get_changed_files_short(git_repo)
+                    logger.info(f"Local changes detected ({len(changed_files)} file(s))")
+                    for file_line in changed_files[:5]:
+                        logger.info(f"  {file_line}")
+                    if len(changed_files) > 5:
+                        logger.info(f"  ... and {len(changed_files) - 5} more")
+
+                    git_operations.stage_all(git_repo)
+                    commit_msg = git_operations.generate_commit_message(config.commit_prefix)
+                    git_operations.commit(git_repo, commit_msg)
+                    logger.info(f"Committed: {commit_msg}")
+
+                # Pull to get remote changes
                 try:
                     before_pull = git_operations.get_head_commit(git_repo)
                     git_operations.pull_rebase(git_repo)
@@ -170,26 +184,9 @@ def cmd_watch(args: argparse.Namespace) -> None:
                         sys.exit(1)
                     raise
 
-                # Handle local changes
                 if not has_local_changes:
                     logger.info("No local changes")
                     continue
-
-                # Show what changed locally
-                changed_files = git_operations.get_changed_files_short(git_repo)
-                logger.info(f"Local changes detected ({len(changed_files)} file(s))")
-                for file_line in changed_files[:5]:
-                    logger.info(f"  {file_line}")
-                if len(changed_files) > 5:
-                    logger.info(f"  ... and {len(changed_files) - 5} more")
-
-                # Stage all changes
-                git_operations.stage_all(git_repo)
-
-                # Commit with auto-generated message
-                commit_msg = git_operations.generate_commit_message(config.commit_prefix)
-                git_operations.commit(git_repo, commit_msg)
-                logger.info(f"Committed: {commit_msg}")
 
                 # Push to remote
                 git_operations.push(git_repo)
