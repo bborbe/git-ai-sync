@@ -2,110 +2,75 @@
 
 Automatic Git repository sync with AI-powered conflict resolution.
 
-## How It Works
+## Install
 
-1. **Watch** - Polls repository at regular intervals for changes
-2. **Debounce** - Skips sync when files changed recently (active editing)
-3. **Sync** - Stages, commits, pulls with rebase, and pushes
-4. **Resolve** - On rebase conflicts, invokes Claude to intelligently merge
+```bash
+uv tool install git+https://github.com/bborbe/git-ai-sync
+```
 
-## Prerequisites
+## Upgrade
 
-- Python 3.14+
-- Git installed and configured with remote
-- `ANTHROPIC_API_KEY` environment variable (only for conflict resolution)
+```bash
+uv tool upgrade git-ai-sync
+```
 
-## Verify Installation
+## Quick Start
 
-After installing, run the doctor command to verify everything is set up:
+```bash
+# Start watching and syncing (default: current directory, 30s interval)
+git-ai-sync watch
+
+# Watch specific directory with custom interval
+git-ai-sync watch /path/to/repo --interval 60
+
+# Run sync once
+git-ai-sync sync /path/to/repo
+
+# Resolve conflicts
+git-ai-sync resolve
+
+# Show status
+git-ai-sync status
+```
+
+## Verify Setup
 
 ```bash
 git-ai-sync doctor
 ```
 
-This checks:
-- ✓ Claude Code CLI is installed and executable
-- ✓ Node.js is available
-- ✓ Git is installed
-- ✓ Claude Code session is authenticated
-- ✓ Current directory is a git repository (optional)
+Checks Claude Code CLI, Node.js, Git, and active session.
 
-If any checks fail, follow the error messages to fix them.
+## How It Works
 
-## Usage
-
-Run directly from GitHub using `uvx`:
-
-```bash
-# Start watching and syncing (default: current directory, 30s interval)
-uvx --from git+https://github.com/bborbe/git-ai-sync git-ai-sync watch
-
-# Watch specific directory with custom interval
-uvx --from git+https://github.com/bborbe/git-ai-sync git-ai-sync watch /path/to/repo --interval 60
-
-# Run sync once
-uvx --from git+https://github.com/bborbe/git-ai-sync git-ai-sync sync /path/to/repo
-
-# Resolve conflicts in current repo
-uvx --from git+https://github.com/bborbe/git-ai-sync git-ai-sync resolve
-
-# Show status
-uvx --from git+https://github.com/bborbe/git-ai-sync git-ai-sync status
-```
-
-### Local Development
-
-```bash
-# Use local version with --refresh to pick up changes
-uvx --refresh --from ~/path/to/git-ai-sync git-ai-sync watch . --interval 5
-```
-
-### Installation (Optional)
-
-For permanent installation:
-
-```bash
-pipx install git+https://github.com/bborbe/git-ai-sync
-```
-
-## Features
-
-- **Auto-sync**: Polls repository at regular intervals to sync changes
-- **Debounce-gating**: Skips sync during active editing (when files changed recently)
-- **AI conflict resolution**: Uses Claude to intelligently resolve merge conflicts
-- **Rebase workflow**: Uses `git pull --rebase` to maintain clean history
+1. **Watch** - Polls repository at regular intervals
+2. **Debounce** - Skips sync when files changed recently (active editing)
+3. **Sync** - Stages, commits, pulls with rebase, pushes
+4. **Resolve** - On conflicts, invokes Claude to intelligently merge
 
 ## Configuration
 
-### Environment Variables
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `GIT_AI_SYNC_INTERVAL` | Sync interval in seconds | `30` |
+| `GIT_AI_SYNC_MODEL` | Claude model | `claude-sonnet-4-5-20250929` |
+| `GIT_AI_SYNC_COMMIT_PREFIX` | Commit message prefix | `auto` |
 
-- `ANTHROPIC_API_KEY` - Required for AI conflict resolution (resolve command)
-- `GIT_AI_SYNC_INTERVAL` - Sync interval in seconds (default: 30)
-- `GIT_AI_SYNC_MODEL` - Claude model (default: claude-sonnet-4-5-20250929)
-- `GIT_AI_SYNC_COMMIT_PREFIX` - Commit message prefix (default: "auto")
+`ANTHROPIC_API_KEY` is only required for conflict resolution (uses Claude Code auth otherwise).
 
 ## Troubleshooting
 
-**Watch mode shows no activity:**
-- Verify the path is a git repository with a configured remote
-- Check `--interval` is not too high
+**Watch mode shows no activity** — Verify the path is a git repository with a configured remote.
 
-**Conflict resolution fails:**
-- Ensure `ANTHROPIC_API_KEY` is set and valid
-- Run `git-ai-sync status` to confirm rebase state
-- Check logs for Claude API errors
+**Conflict resolution fails** — Ensure Claude Code is authenticated (`claude login`). Run `git-ai-sync doctor` to diagnose.
 
-**Changes not syncing:**
-- Debounce may be active (files changed within the interval window)
-- Run `git-ai-sync sync` manually to force a one-time sync
+**Changes not syncing** — Debounce may be active (files changed within the interval). Run `git-ai-sync sync` to force a one-time sync.
 
-## Development
+## Requirements
 
-```bash
-make install    # Install dependencies
-make test       # Run tests
-make precommit  # Run all checks (format, test, lint, typecheck)
-```
+- Git configured with a remote
+- [uv](https://docs.astral.sh/uv/) — `curl -LsSf https://astral.sh/uv/install.sh | sh`
+- Claude Code CLI — `npm install -g @anthropic-ai/claude-code`
 
 ## License
 
