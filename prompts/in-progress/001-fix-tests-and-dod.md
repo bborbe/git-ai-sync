@@ -1,5 +1,10 @@
 ---
-status: created
+status: executing
+container: git-ai-sync-001-fix-tests-and-dod
+dark-factory-version: v0.57.5
+created: "2026-03-19T12:32:45Z"
+queued: "2026-03-19T12:32:45Z"
+started: "2026-03-19T12:32:53Z"
 ---
 
 <summary>
