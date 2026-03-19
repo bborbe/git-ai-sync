@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.3.4
+
+- chore: verify all tests pass, linting succeeds, and project meets Definition of Done criteria
+
 ## v0.3.3
 
 - Fix watch mode failing to pull when local changes exist (commit before pull)
