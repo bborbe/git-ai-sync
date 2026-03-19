@@ -35,7 +35,7 @@ command -v git-ai-sync
 
 Example for a repository at `~/Documents/Obsidian/Personal`:
 
-Create `~/Library/LaunchAgents/com.bborbe.git-ai-sync-obsidian.plist`:
+Create `~/Library/LaunchAgents/com.github.bborbe.git-ai-sync-obsidian.plist`:
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -43,7 +43,7 @@ Create `~/Library/LaunchAgents/com.bborbe.git-ai-sync-obsidian.plist`:
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.bborbe.git-ai-sync-obsidian</string>
+    <string>com.github.bborbe.git-ai-sync-obsidian</string>
     <key>ProgramArguments</key>
     <array>
         <string>/Users/bborbe/.local/bin/git-ai-sync</string>
@@ -72,7 +72,7 @@ Create `~/Library/LaunchAgents/com.bborbe.git-ai-sync-obsidian.plist`:
 Load and start the service:
 
 ```bash
-launchctl load ~/Library/LaunchAgents/com.bborbe.git-ai-sync-obsidian.plist
+launchctl load ~/Library/LaunchAgents/com.github.bborbe.git-ai-sync-obsidian.plist
 ```
 
 Check status:
@@ -87,9 +87,9 @@ Create one plist per repository.
 
 Example plist names:
 
-- `com.bborbe.git-ai-sync-obsidian.plist`
-- `com.bborbe.git-ai-sync-vault.plist`
-- `com.bborbe.git-ai-sync-family.plist`
+- `com.github.bborbe.git-ai-sync-obsidian.plist`
+- `com.github.bborbe.git-ai-sync-vault.plist`
+- `com.github.bborbe.git-ai-sync-family.plist`
 
 Change the `Label` and repository path in each plist.
 
@@ -98,14 +98,14 @@ Change the `Label` and repository path in each plist.
 Stop:
 
 ```bash
-launchctl unload ~/Library/LaunchAgents/com.bborbe.git-ai-sync-obsidian.plist
+launchctl unload ~/Library/LaunchAgents/com.github.bborbe.git-ai-sync-obsidian.plist
 ```
 
 Restart (stop + start):
 
 ```bash
-launchctl unload ~/Library/LaunchAgents/com.bborbe.git-ai-sync-obsidian.plist
-launchctl load ~/Library/LaunchAgents/com.bborbe.git-ai-sync-obsidian.plist
+launchctl unload ~/Library/LaunchAgents/com.github.bborbe.git-ai-sync-obsidian.plist
+launchctl load ~/Library/LaunchAgents/com.github.bborbe.git-ai-sync-obsidian.plist
 ```
 
 ## 4. Verify the watcher is running

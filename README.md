@@ -59,7 +59,7 @@ systemctl --user enable --now git-ai-sync-vault.service
 Quick example (launchd):
 
 ```bash
-launchctl load ~/Library/LaunchAgents/com.bborbe.git-ai-sync-obsidian.plist
+launchctl load ~/Library/LaunchAgents/com.github.bborbe.git-ai-sync-obsidian.plist
 ```
 
 ## How It Works
