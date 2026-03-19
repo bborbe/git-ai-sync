@@ -41,37 +41,26 @@ git-ai-sync doctor
 
 Checks Claude Code CLI, Node.js, Git, and active session.
 
-## Run in the Background with systemd
+## Run in the Background
 
-For production-style usage, run one user systemd service per repository so `git-ai-sync watch ...` stays active across sessions.
+For production-style usage, run one background service per repository so `git-ai-sync watch ...` stays active across sessions.
 
-Quick example:
+| Platform | Guide |
+|----------|-------|
+| Linux (systemd) | [`docs/systemd-user-service.md`](docs/systemd-user-service.md) |
+| macOS (launchd) | [`docs/launchd-service.md`](docs/launchd-service.md) |
 
-```ini
-[Unit]
-Description=git-ai-sync for vault
-After=network-online.target
-
-[Service]
-Type=simple
-ExecStart=%h/.local/bin/git-ai-sync watch %h/vault --interval 30
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=default.target
-```
-
-Then enable it:
+Quick example (systemd):
 
 ```bash
-systemctl --user daemon-reload
 systemctl --user enable --now git-ai-sync-vault.service
 ```
 
-Full guide:
+Quick example (launchd):
 
-- [`docs/systemd-user-service.md`](docs/systemd-user-service.md)
+```bash
+launchctl load ~/Library/LaunchAgents/com.bborbe.git-ai-sync-obsidian.plist
+```
 
 ## How It Works
 
