@@ -185,7 +185,12 @@ def cmd_watch(args: argparse.Namespace) -> None:
                     raise
 
                 if not has_local_changes:
-                    logger.info("No local changes")
+                    if git_operations.is_ahead_of_remote(git_repo):
+                        logger.info("Local branch is ahead of remote, pushing...")
+                        git_operations.push(git_repo)
+                        logger.info("Pushed to remote")
+                    else:
+                        logger.info("No local changes")
                     continue
 
                 # Push to remote

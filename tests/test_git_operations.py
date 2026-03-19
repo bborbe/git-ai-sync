@@ -18,6 +18,7 @@ from git_ai_sync.git_operations import (
     get_current_branch,
     get_head_commit,
     has_changes,
+    is_ahead_of_remote,
     is_in_conflict_state,
     is_in_merge,
     is_in_rebase,
@@ -342,6 +343,23 @@ class TestFindGitRepo:
 
     def test_returns_none_when_no_repo(self, temp_dir: Path) -> None:
         assert find_git_repo(temp_dir) is None
+
+
+class TestIsAheadOfRemote:
+    def test_returns_false_when_command_fails(self) -> None:
+        with patch(
+            "subprocess.run",
+            return_value=_mock_result(returncode=128, stderr="no upstream"),
+        ):
+            assert is_ahead_of_remote(REPO) is False
+
+    def test_returns_false_when_count_is_zero(self) -> None:
+        with patch("subprocess.run", return_value=_mock_result("0\n")):
+            assert is_ahead_of_remote(REPO) is False
+
+    def test_returns_true_when_count_is_positive(self) -> None:
+        with patch("subprocess.run", return_value=_mock_result("3\n")):
+            assert is_ahead_of_remote(REPO) is True
 
 
 class TestGenerateCommitMessage:

@@ -421,6 +421,33 @@ def continue_merge(repo_path: Path) -> None:
         raise GitError(f"Failed to continue merge: {result.stderr}")
 
 
+def is_ahead_of_remote(repo_path: Path) -> bool:
+    """Check if local branch has commits not yet pushed to remote.
+
+    Args:
+        repo_path: Path to git repository
+
+    Returns:
+        True if local branch is ahead of remote tracking branch, False otherwise.
+        Returns False if no upstream is configured or command fails.
+    """
+    result = subprocess.run(
+        ["git", "rev-list", "--count", "@{upstream}..HEAD"],
+        cwd=repo_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    if result.returncode != 0:
+        return False
+
+    try:
+        return int(result.stdout.strip()) > 0
+    except ValueError:
+        return False
+
+
 def generate_commit_message(prefix: str = "auto") -> str:
     """Generate auto-commit message with timestamp.
 

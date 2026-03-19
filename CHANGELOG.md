@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.4.0
+
+- feat: Push unpushed commits in watch mode when local branch is ahead of remote
+
 ## v0.3.4
 
 - chore: verify all tests pass, linting succeeds, and project meets Definition of Done criteria
