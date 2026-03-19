@@ -54,6 +54,11 @@ htmlcov/
 # MCP
 .mcp.json
 
+# Dark Factory
+/.dark-factory.lock
+/prompts/log
+/specs/log
+
 # Claude Code
 /.claude
 /.mcp-*
