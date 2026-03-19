@@ -41,6 +41,38 @@ git-ai-sync doctor
 
 Checks Claude Code CLI, Node.js, Git, and active session.
 
+## Run in the Background with systemd
+
+For production-style usage, run one user systemd service per repository so `git-ai-sync watch ...` stays active across sessions.
+
+Quick example:
+
+```ini
+[Unit]
+Description=git-ai-sync for vault
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/git-ai-sync watch %h/vault --interval 30
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target
+```
+
+Then enable it:
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now git-ai-sync-vault.service
+```
+
+Full guide:
+
+- [`docs/systemd-user-service.md`](docs/systemd-user-service.md)
+
 ## How It Works
 
 1. **Watch** - Polls repository at regular intervals
