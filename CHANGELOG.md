@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.5.0
+
+- feat: Add instance_lock module with OS-level flock to prevent concurrent git-ai-sync processes
+
 ## v0.4.0
 
 - feat: Push unpushed commits in watch mode when local branch is ahead of remote
