@@ -83,6 +83,7 @@ def _mock_git_ops() -> MagicMock:
 # Patch target for late-imported git_operations
 _GIT_OPS = "git_ai_sync.git_operations"
 _CONFIG = "git_ai_sync.config.Config"
+_ACQUIRE_LOCK = "git_ai_sync.instance_lock.acquire_lock"
 
 
 class TestCmdSync:
@@ -104,6 +105,7 @@ class TestCmdSync:
         with (
             patch(_GIT_OPS, mock_git),
             patch(_CONFIG),
+            patch(_ACQUIRE_LOCK),
         ):
             cmd_sync(_sync_args())
             mock_git.push.assert_not_called()
@@ -117,6 +119,7 @@ class TestCmdSync:
         with (
             patch(_GIT_OPS, mock_git),
             patch(_CONFIG),
+            patch(_ACQUIRE_LOCK),
         ):
             cmd_sync(_sync_args())
             mock_git.stage_all.assert_called_once()
@@ -134,6 +137,7 @@ class TestCmdSync:
         with (
             patch(_GIT_OPS, mock_git),
             patch(_CONFIG),
+            patch(_ACQUIRE_LOCK),
             pytest.raises(SystemExit),
         ):
             cmd_sync(_sync_args())
@@ -214,6 +218,67 @@ class TestMainDispatch:
         ):
             main()
             mock_cmd.assert_called_once()
+
+
+class TestLockAcquisition:
+    def test_cmd_watch_exits_on_lock_error(self, tmp_path: Path) -> None:
+        import argparse
+        from unittest.mock import MagicMock, patch
+
+        from git_ai_sync.__main__ import cmd_watch
+        from git_ai_sync.instance_lock import LockError
+
+        args = argparse.Namespace(path=str(tmp_path), interval=30)
+        with (
+            patch("git_ai_sync.git_operations.find_git_repo", return_value=tmp_path),
+            patch(
+                "git_ai_sync.instance_lock.acquire_lock",
+                side_effect=LockError("another instance is already running (pid 99999)"),
+            ),
+            patch("git_ai_sync.file_watcher.ChangeTracker", MagicMock()),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_watch(args)
+        assert exc_info.value.code == 1
+
+    def test_cmd_sync_exits_on_lock_error(self, tmp_path: Path) -> None:
+        import argparse
+        from unittest.mock import patch
+
+        from git_ai_sync.__main__ import cmd_sync
+        from git_ai_sync.instance_lock import LockError
+
+        args = argparse.Namespace(path=str(tmp_path))
+        with (
+            patch("git_ai_sync.git_operations.find_git_repo", return_value=tmp_path),
+            patch("git_ai_sync.git_operations.get_current_branch", return_value="main"),
+            patch(
+                "git_ai_sync.instance_lock.acquire_lock",
+                side_effect=LockError("another instance is already running (pid 99999)"),
+            ),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_sync(args)
+        assert exc_info.value.code == 1
+
+    def test_cmd_resolve_exits_on_lock_error(self, tmp_path: Path) -> None:
+        import argparse
+        from unittest.mock import patch
+
+        from git_ai_sync.__main__ import cmd_resolve
+        from git_ai_sync.instance_lock import LockError
+
+        args = argparse.Namespace(path=str(tmp_path))
+        with (
+            patch("git_ai_sync.git_operations.find_git_repo", return_value=tmp_path),
+            patch(
+                "git_ai_sync.instance_lock.acquire_lock",
+                side_effect=LockError("another instance is already running (pid 99999)"),
+            ),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_resolve(args)
+        assert exc_info.value.code == 1
 
 
 class TestCmdDoctor:

@@ -64,3 +64,6 @@ htmlcov/
 /.mcp-*
 /.update-logs/
 /CLAUDE.md
+
+# Instance lock
+/.git-ai-sync.lock

@@ -117,6 +117,15 @@ def cmd_watch(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     logger.info(f"Watching: {git_repo}")
+
+    from git_ai_sync.instance_lock import LockError, acquire_lock
+
+    try:
+        acquire_lock(git_repo)
+    except LockError as e:
+        logger.error(str(e))
+        sys.exit(1)
+
     logger.info(f"Interval: {interval}s (skips if actively editing)")
 
     # Start filesystem watcher to track changes
@@ -228,6 +237,15 @@ def cmd_sync(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     logger.info(f"Git repository: {git_repo}")
+
+    from git_ai_sync.instance_lock import LockError, acquire_lock
+
+    try:
+        acquire_lock(git_repo)
+    except LockError as e:
+        logger.error(str(e))
+        sys.exit(1)
+
     current_branch = git_operations.get_current_branch(git_repo)
     logger.info(f"Current branch: {current_branch}")
 
@@ -297,6 +315,14 @@ def cmd_resolve(args: argparse.Namespace) -> None:
     git_repo = git_operations.find_git_repo(repo_path)
     if not git_repo:
         logger.error(f"Not a git repository: {repo_path}")
+        sys.exit(1)
+
+    from git_ai_sync.instance_lock import LockError, acquire_lock
+
+    try:
+        acquire_lock(git_repo)
+    except LockError as e:
+        logger.error(str(e))
         sys.exit(1)
 
     # 2. Check if in conflict state (rebase or merge)

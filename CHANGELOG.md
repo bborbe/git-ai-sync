@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.6.0
+
+- feat: Wire instance lock into cmd_watch, cmd_sync, and cmd_resolve so only one git-ai-sync instance can operate on a repository at a time; add .git-ai-sync.lock to .gitignore
+
 ## v0.5.0
 
 - feat: Add instance_lock module with OS-level flock to prevent concurrent git-ai-sync processes
