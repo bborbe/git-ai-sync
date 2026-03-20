@@ -1,8 +1,10 @@
 ---
+status: approved
 tags:
-  - dark-factory
-  - spec
-status: draft
+    - dark-factory
+    - spec
+approved: "2026-03-20T14:00:20Z"
+branch: dark-factory/instance-locking
 ---
 
 ## Summary
