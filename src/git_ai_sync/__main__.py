@@ -25,6 +25,7 @@ def parse_args() -> argparse.Namespace:
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
         help="Logging level",
     )
+    parser.add_argument("--version", action="version", version=f"git-ai-sync {__version__}")
 
     subparsers = parser.add_subparsers(dest="command", required=True)
 
