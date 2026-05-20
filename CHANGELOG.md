@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.7.0
+
+- feat: Accept `ANTHROPIC_MODEL` env var on `Config.model` via `AliasChoices` so alt-provider routing (e.g. MiniMax) works without setting `GIT_AI_SYNC_MODEL` — avoids the recognized-Anthropic-model-name trap that would otherwise route to api.anthropic.com despite `ANTHROPIC_BASE_URL`
+- feat: `doctor` now prints resolved Claude routing (model + base URL + auth-token presence) and asks the backend to self-identify, turning it into a live alt-provider round-trip test
+- feat: `doctor` session test has a 30s timeout so invalid token / unreachable base URL fails fast instead of hanging
+- chore: Switch to hatch-vcs for dynamic versioning from git tags
+- chore: Mount uv cache for faster CI / local installs
+- docs: Document local-checkout install (`uv tool install --force --reinstall .`) and MiniMax alt-provider workflow in README
+
 ## v0.6.0
 
 - feat: Wire instance lock into cmd_watch, cmd_sync, and cmd_resolve so only one git-ai-sync instance can operate on a repository at a time; add .git-ai-sync.lock to .gitignore

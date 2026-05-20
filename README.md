@@ -45,7 +45,16 @@ git-ai-sync status
 git-ai-sync doctor
 ```
 
-Checks Claude Code CLI, Node.js, Git, and active session.
+Checks Claude Code CLI, Node.js, Git, and runs a live round-trip that prints the resolved model + base URL and asks the backend to self-identify. Use it after setting `ANTHROPIC_BASE_URL` / `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_MODEL` to confirm alt-provider routing (e.g. MiniMax) actually reaches the intended backend rather than silently falling back to `api.anthropic.com`.
+
+Example with MiniMax:
+
+```bash
+ANTHROPIC_BASE_URL="https://api.minimax.io/anthropic" \
+ANTHROPIC_AUTH_TOKEN="sk-..." \
+ANTHROPIC_MODEL="MiniMax-M2.7" \
+git-ai-sync doctor
+```
 
 ## Run in the Background
 

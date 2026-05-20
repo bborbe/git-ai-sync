@@ -444,6 +444,17 @@ def cmd_doctor() -> None:
 
     from claude_code_sdk import ClaudeCodeOptions, ClaudeSDKClient, ClaudeSDKError
 
+    from git_ai_sync.config import Config
+
+    config = Config()
+    base_url = os.environ.get("ANTHROPIC_BASE_URL", "")
+    auth_token = os.environ.get("ANTHROPIC_AUTH_TOKEN", "")
+    logger.info("Resolved Claude routing:")
+    logger.info(f"  model:        {config.model}")
+    logger.info(f"  base_url:     {base_url or '(default api.anthropic.com)'}")
+    logger.info(f"  auth_token:   {f'set (len={len(auth_token)})' if auth_token else 'unset'}")
+    logger.info("")
+
     checks_passed = 0
     checks_total = 4  # Git repo check is informational only, not counted
 
@@ -506,18 +517,23 @@ def cmd_doctor() -> None:
     else:
 
         async def test_session() -> bool:
-            from claude_code_sdk import AssistantMessage
+            from claude_code_sdk import AssistantMessage, TextBlock
 
             try:
-                options = ClaudeCodeOptions(model="claude-sonnet-4-5-20250929")
+                options = ClaudeCodeOptions(model=config.model)
                 async with ClaudeSDKClient(options=options) as client:
-                    await client.query("Respond with just: OK")
-                    # Consume response to complete the request
+                    await client.query(
+                        "Reply with your model name and provider only, "
+                        "no other text. Example: 'claude-sonnet-4-6 (Anthropic)'."
+                    )
+                    response_text = ""
                     async for message in client.receive_response():
                         if isinstance(message, AssistantMessage):
-                            # If we get a response, session is valid
-                            return True
-                # If no assistant message received, still valid (query sent)
+                            for block in message.content:
+                                if isinstance(block, TextBlock):
+                                    response_text += block.text
+                    if response_text:
+                        logger.info(f"  Model self-id: {response_text.strip()}")
                 return True
             except ClaudeSDKError as e:
                 logger.error(f"✗ Claude Code session test failed: {e}")
@@ -528,10 +544,15 @@ def cmd_doctor() -> None:
                 return False
 
         try:
-            session_valid = asyncio.run(test_session())
+            session_valid = asyncio.run(asyncio.wait_for(test_session(), timeout=30))
             if session_valid:
                 logger.info("✓ Claude Code CLI session is active")
                 checks_passed += 1
+        except TimeoutError:
+            logger.error("✗ Session test timed out after 30s")
+            logger.error(
+                "  Check ANTHROPIC_BASE_URL reachability and ANTHROPIC_AUTH_TOKEN validity"
+            )
         except Exception as e:
             logger.error(f"✗ Session test failed: {e}")
 
