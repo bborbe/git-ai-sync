@@ -12,6 +12,7 @@ class TestConfigDefaults:
         monkeypatch.delenv("GIT_AI_SYNC_MODEL", raising=False)
         monkeypatch.delenv("GIT_AI_SYNC_LOG_LEVEL", raising=False)
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("ANTHROPIC_MODEL", raising=False)
 
         config = Config()
         assert config.interval == 30
@@ -37,9 +38,24 @@ class TestConfigFromEnv:
         assert config.commit_prefix == "vault backup"
 
     def test_model_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("ANTHROPIC_MODEL", raising=False)
         monkeypatch.setenv("GIT_AI_SYNC_MODEL", "claude-opus-4-6")
         config = Config()
         assert config.model == "claude-opus-4-6"
+
+    def test_model_from_anthropic_model_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("GIT_AI_SYNC_MODEL", raising=False)
+        monkeypatch.setenv("ANTHROPIC_MODEL", "MiniMax-M2.7")
+        config = Config()
+        assert config.model == "MiniMax-M2.7"
+
+    def test_anthropic_model_wins_over_git_ai_sync_model(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("GIT_AI_SYNC_MODEL", "claude-opus-4-6")
+        monkeypatch.setenv("ANTHROPIC_MODEL", "MiniMax-M2.7")
+        config = Config()
+        assert config.model == "MiniMax-M2.7"
 
     def test_anthropic_key_alias(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-key-123")

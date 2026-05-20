@@ -56,6 +56,7 @@ htmlcov/
 
 # Dark Factory
 /.dark-factory.lock
+/.dark-factory.log
 /prompts/log
 /specs/log
 
@@ -63,7 +64,6 @@ htmlcov/
 /.claude
 /.mcp-*
 /.update-logs/
-/CLAUDE.md
 
 # Instance lock
 /.git-ai-sync.lock

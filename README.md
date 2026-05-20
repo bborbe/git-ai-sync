@@ -14,6 +14,12 @@ uv tool install git+https://github.com/bborbe/git-ai-sync
 uv tool upgrade git-ai-sync
 ```
 
+## Install from local checkout
+
+```bash
+uv tool install --force --reinstall .
+```
+
 ## Quick Start
 
 ```bash

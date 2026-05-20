@@ -1,6 +1,6 @@
 """Configuration management."""
 
-from pydantic import Field
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -24,7 +24,11 @@ class Config(BaseSettings):
         alias="ANTHROPIC_API_KEY",
         description="Anthropic API key for AI conflict resolution",
     )
-    model: str = Field(default="claude-sonnet-4-5-20250929", description="Claude model to use")
+    model: str = Field(
+        default="claude-sonnet-4-5-20250929",
+        validation_alias=AliasChoices("ANTHROPIC_MODEL", "GIT_AI_SYNC_MODEL"),
+        description="Model name (set ANTHROPIC_MODEL for alt-provider routing)",
+    )
 
     # Logging
     log_level: str = Field(default="INFO", description="Logging level")
