@@ -1,4 +1,4 @@
-autoRelease: true
+autoRelease: false
 maxContainers: 5
 validationPrompt: docs/dod.md
 workflow: direct
