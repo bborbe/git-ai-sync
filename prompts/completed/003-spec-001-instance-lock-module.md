@@ -1,8 +1,8 @@
 ---
 status: completed
-spec: ["001"]
+spec: [001-instance-locking]
 summary: Created src/git_ai_sync/instance_lock.py with OS-level exclusive flock and tests/test_instance_lock.py with 6 tests covering acquisition, permissions, contention, stale lock, and state cleanup.
-container: git-ai-sync-003-spec-001-instance-lock-module
+execution_id: git-ai-sync-003-spec-001-instance-lock-module
 dark-factory-version: v0.59.5-dirty
 created: "2026-03-20T00:00:00Z"
 queued: "2026-03-20T14:04:51Z"

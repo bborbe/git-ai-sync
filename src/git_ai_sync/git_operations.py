@@ -121,6 +121,30 @@ def pull_rebase(repo_path: Path) -> None:
         raise GitError(f"Failed to pull: {result.stderr}")
 
 
+def pull_merge(repo_path: Path) -> None:
+    """Pull with merge from remote.
+
+    Args:
+        repo_path: Path to git repository
+
+    Raises:
+        GitError: If pull fails or conflicts occur
+    """
+    result = subprocess.run(
+        ["git", "pull", "--no-rebase"],
+        cwd=repo_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    if result.returncode != 0:
+        # Check if it's a conflict
+        if is_in_merge(repo_path):
+            raise GitError("Merge conflicts detected - use 'git-ai-sync resolve' to resolve")
+        raise GitError(f"Failed to pull: {result.stderr}")
+
+
 def push(repo_path: Path) -> None:
     """Push commits to remote.
 

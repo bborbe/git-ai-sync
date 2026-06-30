@@ -1,8 +1,8 @@
 ---
 status: completed
-spec: ["001"]
+spec: [001-instance-locking]
 summary: Wired acquire_lock into cmd_watch, cmd_sync, and cmd_resolve in __main__.py with LockError handling; appended .git-ai-sync.lock to .gitignore; added three lock-error tests and patched acquire_lock in existing TestCmdSync tests that used a non-existent /repo path.
-container: git-ai-sync-004-spec-001-cli-integration
+execution_id: git-ai-sync-004-spec-001-cli-integration
 dark-factory-version: v0.59.5-dirty
 created: "2026-03-20T00:00:00Z"
 queued: "2026-03-20T14:04:51Z"

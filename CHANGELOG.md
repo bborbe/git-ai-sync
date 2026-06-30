@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- feat: Add `--strategy {merge,rebase}` flag to `watch` and `sync` commands (env `GIT_AI_SYNC_STRATEGY`, default `merge`) so the pull strategy is configurable per-vault; merge default avoids the `git pull --rebase` wedge on redundant-commit detection in autocommit + multi-client vaults
+
 ## v0.7.0
 
 - feat: Accept `ANTHROPIC_MODEL` env var on `Config.model` via `AliasChoices` so alt-provider routing (e.g. MiniMax) works without setting `GIT_AI_SYNC_MODEL` — avoids the recognized-Anthropic-model-name trap that would otherwise route to api.anthropic.com despite `ANTHROPIC_BASE_URL`
