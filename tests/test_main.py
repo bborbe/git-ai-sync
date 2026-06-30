@@ -74,6 +74,16 @@ class TestParseArgs:
             args = parse_args()
             assert args.strategy == "rebase"
 
+    def test_sync_strategy_default(self) -> None:
+        with patch("sys.argv", ["git-ai-sync", "sync"]):
+            args = parse_args()
+            assert args.strategy == "merge"
+
+    def test_sync_strategy_rebase(self) -> None:
+        with patch("sys.argv", ["git-ai-sync", "sync", "--strategy", "rebase"]):
+            args = parse_args()
+            assert args.strategy == "rebase"
+
 
 def _sync_args(path: str = ".") -> argparse.Namespace:
     return argparse.Namespace(command="sync", path=path, strategy="merge")
