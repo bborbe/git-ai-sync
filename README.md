@@ -23,11 +23,11 @@ uv tool install --force --reinstall .
 ## Quick Start
 
 ```bash
-# Start watching and syncing (default: current directory, 30s interval)
+# Start watching and syncing (default: current directory, 30s interval, merge strategy)
 git-ai-sync watch
 
-# Watch specific directory with custom interval
-git-ai-sync watch /path/to/repo --interval 60
+# Watch specific directory with custom interval and rebase strategy
+git-ai-sync watch /path/to/repo --interval 60 --strategy rebase
 
 # Run sync once
 git-ai-sync sync /path/to/repo
@@ -38,6 +38,8 @@ git-ai-sync resolve
 # Show status
 git-ai-sync status
 ```
+
+The `--strategy` flag supports `merge` (default) or `rebase`, and can be set via the `GIT_AI_SYNC_STRATEGY` environment variable.
 
 ## Verify Setup
 
@@ -91,6 +93,7 @@ launchctl load ~/Library/LaunchAgents/com.github.bborbe.git-ai-sync-obsidian.pli
 | `GIT_AI_SYNC_INTERVAL` | Sync interval in seconds | `30` |
 | `GIT_AI_SYNC_MODEL` | Claude model | `claude-sonnet-4-5-20250929` |
 | `GIT_AI_SYNC_COMMIT_PREFIX` | Commit message prefix | `auto` |
+| `GIT_AI_SYNC_STRATEGY` | Pull strategy (merge or rebase) | `merge` |
 
 `ANTHROPIC_API_KEY` is only required for conflict resolution (uses Claude Code auth otherwise).
 

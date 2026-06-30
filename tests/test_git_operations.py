@@ -22,6 +22,7 @@ from git_ai_sync.git_operations import (
     is_in_conflict_state,
     is_in_merge,
     is_in_rebase,
+    pull_merge,
     pull_rebase,
     push,
     stage_all,
@@ -248,6 +249,24 @@ class TestPullRebase:
             pytest.raises(GitError, match="conflicts"),
         ):
             pull_rebase(REPO)
+
+
+class TestPullMerge:
+    def test_pulls(self) -> None:
+        with patch("subprocess.run", return_value=_mock_result()) as mock:
+            pull_merge(REPO)
+            assert mock.call_args[0][0] == ["git", "pull", "--no-rebase"]
+
+    def test_raises_conflict_error(self) -> None:
+        with (
+            patch(
+                "subprocess.run",
+                return_value=_mock_result(returncode=1, stderr="conflict"),
+            ),
+            patch("git_ai_sync.git_operations.is_in_merge", return_value=True),
+            pytest.raises(GitError, match="conflicts"),
+        ):
+            pull_merge(REPO)
 
 
 class TestPush:

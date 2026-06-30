@@ -38,6 +38,12 @@ def parse_args() -> argparse.Namespace:
         help="Sync interval in seconds",
     )
     watch_parser.add_argument(
+        "--strategy",
+        default=os.getenv("GIT_AI_SYNC_STRATEGY", "merge"),
+        choices=["merge", "rebase"],
+        help="Pull strategy: merge or rebase",
+    )
+    watch_parser.add_argument(
         "path",
         nargs="?",
         default=".",
@@ -51,6 +57,12 @@ def parse_args() -> argparse.Namespace:
         nargs="?",
         default=".",
         help="Repository path to sync",
+    )
+    sync_parser.add_argument(
+        "--strategy",
+        default=os.getenv("GIT_AI_SYNC_STRATEGY", "merge"),
+        choices=["merge", "rebase"],
+        help="Pull strategy: merge or rebase",
     )
 
     # resolve subcommand
@@ -171,7 +183,10 @@ def cmd_watch(args: argparse.Namespace) -> None:
                 # Pull to get remote changes
                 try:
                     before_pull = git_operations.get_head_commit(git_repo)
-                    git_operations.pull_rebase(git_repo)
+                    if args.strategy == "merge":
+                        git_operations.pull_merge(git_repo)
+                    else:
+                        git_operations.pull_rebase(git_repo)
                     after_pull = git_operations.get_head_commit(git_repo)
 
                     if before_pull != after_pull:
@@ -189,7 +204,7 @@ def cmd_watch(args: argparse.Namespace) -> None:
 
                 except git_operations.GitError as e:
                     if "conflicts" in str(e).lower():
-                        logger.error(f"Rebase conflicts detected: {e}")
+                        logger.error(f"Conflicts detected: {e}")
                         logger.error(f"Run 'git-ai-sync resolve {git_repo}' to resolve")
                         sys.exit(1)
                     raise
@@ -274,14 +289,17 @@ def cmd_sync(args: argparse.Namespace) -> None:
         logger.error(f"Failed to commit: {e}")
         sys.exit(1)
 
-    # 5. Pull with rebase
-    logger.info("Pulling with rebase...")
+    # 5. Pull with strategy
+    logger.info(f"Pulling with {args.strategy}...")
     try:
-        git_operations.pull_rebase(git_repo)
+        if args.strategy == "merge":
+            git_operations.pull_merge(git_repo)
+        else:
+            git_operations.pull_rebase(git_repo)
         logger.info("Pulled")
     except git_operations.GitError as e:
         if "conflicts" in str(e).lower():
-            logger.error(f"Rebase conflicts detected: {e}")
+            logger.error(f"Conflicts detected: {e}")
             logger.error("Run 'git-ai-sync resolve' to resolve conflicts")
             sys.exit(1)
         logger.error(f"Failed to pull: {e}")
@@ -580,6 +598,10 @@ def main() -> None:
     args = parse_args()
     configure_logging(args.log_level)
     setup_signal_handlers()
+
+    if hasattr(args, "strategy") and args.strategy not in ("merge", "rebase"):
+        logger.error(f"Invalid strategy {args.strategy!r}; must be merge or rebase")
+        sys.exit(2)
 
     if args.command == "watch":
         cmd_watch(args)

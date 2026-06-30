@@ -64,9 +64,29 @@ class TestParseArgs:
             args = parse_args()
             assert args.command == "status"
 
+    def test_watch_strategy_default(self) -> None:
+        with patch("sys.argv", ["git-ai-sync", "watch"]):
+            args = parse_args()
+            assert args.strategy == "merge"
+
+    def test_watch_strategy_rebase(self) -> None:
+        with patch("sys.argv", ["git-ai-sync", "watch", "--strategy", "rebase"]):
+            args = parse_args()
+            assert args.strategy == "rebase"
+
+    def test_sync_strategy_default(self) -> None:
+        with patch("sys.argv", ["git-ai-sync", "sync"]):
+            args = parse_args()
+            assert args.strategy == "merge"
+
+    def test_sync_strategy_rebase(self) -> None:
+        with patch("sys.argv", ["git-ai-sync", "sync", "--strategy", "rebase"]):
+            args = parse_args()
+            assert args.strategy == "rebase"
+
 
 def _sync_args(path: str = ".") -> argparse.Namespace:
-    return argparse.Namespace(command="sync", path=path)
+    return argparse.Namespace(command="sync", path=path, strategy="merge")
 
 
 def _status_args(path: str = ".") -> argparse.Namespace:
@@ -116,16 +136,49 @@ class TestCmdSync:
         mock_git.get_current_branch.return_value = "master"
         mock_git.has_changes.return_value = True
         mock_git.generate_commit_message.return_value = "auto: 2026-01-01"
+        args = argparse.Namespace(command="sync", path="/repo", strategy="rebase")
         with (
             patch(_GIT_OPS, mock_git),
             patch(_CONFIG),
             patch(_ACQUIRE_LOCK),
         ):
-            cmd_sync(_sync_args())
+            cmd_sync(args)
             mock_git.stage_all.assert_called_once()
             mock_git.commit.assert_called_once()
             mock_git.pull_rebase.assert_called_once()
             mock_git.push.assert_called_once()
+
+    def test_full_sync_merge_strategy(self) -> None:
+        mock_git = _mock_git_ops()
+        mock_git.find_git_repo.return_value = Path("/repo")
+        mock_git.get_current_branch.return_value = "master"
+        mock_git.has_changes.return_value = True
+        mock_git.generate_commit_message.return_value = "auto: 2026-01-01"
+        args = argparse.Namespace(command="sync", path="/repo", strategy="merge")
+        with (
+            patch(_GIT_OPS, mock_git),
+            patch(_CONFIG),
+            patch(_ACQUIRE_LOCK),
+        ):
+            cmd_sync(args)
+            mock_git.pull_merge.assert_called_once()
+            mock_git.pull_rebase.assert_not_called()
+
+    def test_full_sync_rebase_strategy(self) -> None:
+        mock_git = _mock_git_ops()
+        mock_git.find_git_repo.return_value = Path("/repo")
+        mock_git.get_current_branch.return_value = "master"
+        mock_git.has_changes.return_value = True
+        mock_git.generate_commit_message.return_value = "auto: 2026-01-01"
+        args = argparse.Namespace(command="sync", path="/repo", strategy="rebase")
+        with (
+            patch(_GIT_OPS, mock_git),
+            patch(_CONFIG),
+            patch(_ACQUIRE_LOCK),
+        ):
+            cmd_sync(args)
+            mock_git.pull_rebase.assert_called_once()
+            mock_git.pull_merge.assert_not_called()
 
     def test_conflict_exits(self) -> None:
         mock_git = _mock_git_ops()
@@ -134,13 +187,14 @@ class TestCmdSync:
         mock_git.has_changes.return_value = True
         mock_git.generate_commit_message.return_value = "auto: 2026-01-01"
         mock_git.pull_rebase.side_effect = GitError("conflicts detected")
+        args = argparse.Namespace(command="sync", path="/repo", strategy="rebase")
         with (
             patch(_GIT_OPS, mock_git),
             patch(_CONFIG),
             patch(_ACQUIRE_LOCK),
             pytest.raises(SystemExit),
         ):
-            cmd_sync(_sync_args())
+            cmd_sync(args)
 
 
 class TestCmdStatus:
@@ -279,6 +333,64 @@ class TestLockAcquisition:
         ):
             cmd_resolve(args)
         assert exc_info.value.code == 1
+
+
+class TestCmdWatchDispatch:
+    def test_cmd_watch_merge_strategy(self) -> None:
+        import contextlib
+
+        from git_ai_sync.__main__ import cmd_watch
+        from git_ai_sync.file_watcher import ChangeTracker
+
+        args = argparse.Namespace(path=".", interval=30, strategy="merge")
+        mock_git = _mock_git_ops()
+        mock_git.find_git_repo.return_value = Path("/repo")
+        mock_git.get_current_branch.return_value = "master"
+        mock_git.has_changes.return_value = False
+        mock_git.is_ahead_of_remote.return_value = False
+        # First sleep returns None (loop body runs once), second raises to break loop
+        sleep_side_effect: list[object] = [None, KeyboardInterrupt()]
+        with (
+            patch(_GIT_OPS, mock_git),
+            patch(_CONFIG),
+            patch(_ACQUIRE_LOCK),
+            patch.object(ChangeTracker, "start"),
+            patch.object(ChangeTracker, "stop"),
+            patch.object(ChangeTracker, "get_seconds_since_last_change", return_value=999),
+            patch("time.sleep", side_effect=sleep_side_effect),
+        ):
+            with contextlib.suppress(KeyboardInterrupt):
+                cmd_watch(args)
+            mock_git.pull_merge.assert_called_once()
+            mock_git.pull_rebase.assert_not_called()
+
+    def test_cmd_watch_rebase_strategy(self) -> None:
+        import contextlib
+
+        from git_ai_sync.__main__ import cmd_watch
+        from git_ai_sync.file_watcher import ChangeTracker
+
+        args = argparse.Namespace(path=".", interval=30, strategy="rebase")
+        mock_git = _mock_git_ops()
+        mock_git.find_git_repo.return_value = Path("/repo")
+        mock_git.get_current_branch.return_value = "master"
+        mock_git.has_changes.return_value = False
+        mock_git.is_ahead_of_remote.return_value = False
+        # First sleep returns None (loop body runs once), second raises to break loop
+        sleep_side_effect: list[object] = [None, KeyboardInterrupt()]
+        with (
+            patch(_GIT_OPS, mock_git),
+            patch(_CONFIG),
+            patch(_ACQUIRE_LOCK),
+            patch.object(ChangeTracker, "start"),
+            patch.object(ChangeTracker, "stop"),
+            patch.object(ChangeTracker, "get_seconds_since_last_change", return_value=999),
+            patch("time.sleep", side_effect=sleep_side_effect),
+        ):
+            with contextlib.suppress(KeyboardInterrupt):
+                cmd_watch(args)
+            mock_git.pull_rebase.assert_called_once()
+            mock_git.pull_merge.assert_not_called()
 
 
 class TestCmdDoctor:
