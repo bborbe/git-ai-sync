@@ -1,5 +1,13 @@
 # Changelog
 
+All notable changes to this project will be documented in this file.
+
+Please choose versions by [Semantic Versioning](http://semver.org/).
+
+* MAJOR version when you make incompatible API changes,
+* MINOR version when you add functionality in a backwards-compatible manner, and
+* PATCH version when you make backwards-compatible bug fixes.
+
 ## v0.8.0
 
 - feat: Add `--strategy {merge,rebase}` flag to `watch` and `sync` commands (env `GIT_AI_SYNC_STRATEGY`, default `merge`) so the pull strategy is configurable per-vault; merge default avoids the `git pull --rebase` wedge on redundant-commit detection in autocommit + multi-client vaults
