@@ -1,4 +1,5 @@
 ---
+spec: ["002-push-sync-health-metrics"]
 status: draft
 created: "2026-09-02"
 ---
