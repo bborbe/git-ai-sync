@@ -1,8 +1,13 @@
 ---
-status: approved
+status: completed
 spec: [002-bug-marker-refusal-recovery]
+summary: 'Wired marker-refusal recovery into cmd_sync and cmd_watch via conflict_resolver.commit_with_marker_recovery, added MarkerRefusalError exit handling (sync and watch both exit 1 with still-flagged files and a resolve pointer), updated tests/test_main.py with recovery patches and two new acceptance tests, and extended the CHANGELOG Unreleased section with a fix: entry.'
+execution_id: git-ai-sync-marker-refusal-exec-008-spec-002-bug-marker-refusal-recovery-wiring
+dark-factory-version: dev
 created: "2026-09-02T21:20:00Z"
 queued: "2026-09-02T21:25:33Z"
+started: "2026-09-02T21:32:14Z"
+completed: "2026-09-02T21:36:21Z"
 ---
 
 <summary>

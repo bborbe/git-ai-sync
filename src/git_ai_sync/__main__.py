@@ -110,10 +110,11 @@ def setup_signal_handlers() -> None:
 
 def cmd_watch(args: argparse.Namespace) -> None:
     """Start watching and syncing with debounce-gated polling."""
+    import asyncio
     import time
     from pathlib import Path
 
-    from git_ai_sync import git_operations, metrics
+    from git_ai_sync import conflict_resolver, git_operations, metrics
     from git_ai_sync.config import Config
     from git_ai_sync.file_watcher import ChangeTracker
 
@@ -190,7 +191,13 @@ def cmd_watch(args: argparse.Namespace) -> None:
 
                     git_operations.stage_all(git_repo)
                     commit_msg = git_operations.generate_commit_message(config.commit_prefix)
-                    git_operations.commit(git_repo, commit_msg)
+
+                    async def run_commit(msg: str = commit_msg) -> None:
+                        await conflict_resolver.commit_with_marker_recovery(
+                            git_repo, msg, config.model
+                        )
+
+                    asyncio.run(run_commit())
                     logger.info(f"Committed: {commit_msg}")
 
                 # Pull to get remote changes
@@ -249,6 +256,10 @@ def cmd_watch(args: argparse.Namespace) -> None:
                         git_repo,
                     )
 
+            except git_operations.MarkerRefusalError as e:
+                logger.error(f"Sync failed: {e}")
+                sys.exit(1)
+
             except git_operations.GitError as e:
                 logger.error(f"Sync failed: {e}")
                 logger.info("Continuing to watch...")
@@ -263,9 +274,10 @@ def cmd_watch(args: argparse.Namespace) -> None:
 
 def cmd_sync(args: argparse.Namespace) -> None:
     """Run sync once."""
+    import asyncio
     from pathlib import Path
 
-    from git_ai_sync import git_operations
+    from git_ai_sync import conflict_resolver, git_operations
     from git_ai_sync.config import Config
 
     config = Config()
@@ -306,11 +318,15 @@ def cmd_sync(args: argparse.Namespace) -> None:
         logger.error(f"Failed to stage: {e}")
         sys.exit(1)
 
-    # 4. Commit with auto-generated message
+    # 4. Commit with auto-generated message (with marker-refusal recovery)
     commit_msg = git_operations.generate_commit_message(config.commit_prefix)
     logger.info(f"Committing: {commit_msg}")
+
+    async def run_commit() -> None:
+        await conflict_resolver.commit_with_marker_recovery(git_repo, commit_msg, config.model)
+
     try:
-        git_operations.commit(git_repo, commit_msg)
+        asyncio.run(run_commit())
         logger.info("Committed")
     except git_operations.GitError as e:
         logger.error(f"Failed to commit: {e}")
