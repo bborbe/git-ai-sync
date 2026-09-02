@@ -1,7 +1,12 @@
 ---
-status: approved
+status: completed
+summary: Added rotating log file handler (RotatingFileHandler, 5 MB x 5 backups) enabled via GIT_AI_SYNC_LOG_FILE, wired through Config and main(), with tests for rotation caps, config defaults, and main wiring
+execution_id: git-ai-sync-alert-sync-stalled-exec-007-spec-002-log-rotation
+dark-factory-version: dev
 created: "2026-09-02T20:35:03Z"
 queued: "2026-09-02T20:35:03Z"
+started: "2026-09-02T20:40:49Z"
+completed: "2026-09-02T20:43:00Z"
 ---
 # Rotating log file handler for bounded log output
 

@@ -623,7 +623,13 @@ def cmd_version() -> None:
 def main() -> None:
     """Main entry point."""
     args = parse_args()
-    configure_logging(args.log_level)
+
+    from pathlib import Path
+
+    from git_ai_sync.config import Config
+
+    config = Config()
+    configure_logging(args.log_level, Path(config.log_file) if config.log_file else None)
     setup_signal_handlers()
 
     if hasattr(args, "strategy") and args.strategy not in ("merge", "rebase"):

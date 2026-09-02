@@ -14,6 +14,7 @@ class TestConfigDefaults:
         monkeypatch.delenv("GIT_AI_SYNC_PUSHGATEWAY_URL", raising=False)
         monkeypatch.delenv("GIT_AI_SYNC_PUSHGATEWAY_USERNAME", raising=False)
         monkeypatch.delenv("GIT_AI_SYNC_PUSHGATEWAY_PASSWORD", raising=False)
+        monkeypatch.delenv("GIT_AI_SYNC_LOG_FILE", raising=False)
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         monkeypatch.delenv("ANTHROPIC_MODEL", raising=False)
 
@@ -25,6 +26,7 @@ class TestConfigDefaults:
         assert config.pushgateway_url is None
         assert config.pushgateway_username is None
         assert config.pushgateway_password is None
+        assert config.log_file is None
 
     def test_anthropic_key_none_by_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
@@ -76,3 +78,8 @@ class TestConfigFromEnv:
         assert config.pushgateway_url == "https://pushgateway.test"
         assert config.pushgateway_username == "monitoring"
         assert config.pushgateway_password == "s3cret"
+
+    def test_log_file_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("GIT_AI_SYNC_LOG_FILE", "/tmp/git-ai-sync.log")
+        config = Config()
+        assert config.log_file == "/tmp/git-ai-sync.log"

@@ -273,6 +273,30 @@ class TestMainDispatch:
             main()
             mock_cmd.assert_called_once()
 
+    def test_main_wires_log_file_into_configure_logging(self) -> None:
+        with (
+            patch("sys.argv", ["git-ai-sync", "version"]),
+            patch("git_ai_sync.__main__.setup_signal_handlers"),
+            patch("git_ai_sync.config.Config") as mock_config,
+            patch("git_ai_sync.__main__.configure_logging") as mock_configure_logging,
+        ):
+            mock_config.return_value.log_file = "/tmp/x/git-ai-sync.log"
+            main()
+            mock_configure_logging.assert_called_once()
+            assert mock_configure_logging.call_args.args[1] == Path("/tmp/x/git-ai-sync.log")
+
+    def test_main_wires_none_when_log_file_unset(self) -> None:
+        with (
+            patch("sys.argv", ["git-ai-sync", "version"]),
+            patch("git_ai_sync.__main__.setup_signal_handlers"),
+            patch("git_ai_sync.config.Config") as mock_config,
+            patch("git_ai_sync.__main__.configure_logging") as mock_configure_logging,
+        ):
+            mock_config.return_value.log_file = None
+            main()
+            mock_configure_logging.assert_called_once()
+            assert mock_configure_logging.call_args.args[1] is None
+
 
 class TestLockAcquisition:
     def test_cmd_watch_exits_on_lock_error(self, tmp_path: Path) -> None:

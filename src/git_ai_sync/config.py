@@ -46,3 +46,9 @@ class Config(BaseSettings):
         default=None,
         description="Pushgateway basic-auth password",
     )
+
+    # Rotating file logging
+    log_file: str | None = Field(
+        default=None,
+        description="Log file path for the rotating file handler (GIT_AI_SYNC_LOG_FILE)",
+    )

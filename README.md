@@ -97,6 +97,7 @@ launchctl load ~/Library/LaunchAgents/com.github.bborbe.git-ai-sync-obsidian.pli
 | `GIT_AI_SYNC_PUSHGATEWAY_URL` | Prometheus pushgateway base URL (e.g. https://pushgateway.dev.nuke.benjamin-borbe.de) | unset (disabled) |
 | `GIT_AI_SYNC_PUSHGATEWAY_USERNAME` | Pushgateway basic-auth username | unset |
 | `GIT_AI_SYNC_PUSHGATEWAY_PASSWORD` | Pushgateway basic-auth password | unset |
+| `GIT_AI_SYNC_LOG_FILE` | Log file path for the rotating file handler (5 MB x 5 backups) | unset (stderr only) |
 
 `ANTHROPIC_API_KEY` is only required for conflict resolution (uses Claude Code auth otherwise).
 
