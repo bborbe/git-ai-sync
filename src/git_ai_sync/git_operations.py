@@ -11,6 +11,12 @@ class GitError(Exception):
     pass
 
 
+class MarkerRefusalError(GitError):
+    """Commit refused by the pre-commit hook because staged content contains conflict markers."""
+
+    pass
+
+
 def find_git_repo(path: Path) -> Path | None:
     """Find git repository root by walking UP from given path.
 
@@ -83,6 +89,8 @@ def commit(repo_path: Path, message: str) -> None:
         message: Commit message
 
     Raises:
+        MarkerRefusalError: If the pre-commit hook refuses the commit because
+            staged content contains conflict markers
         GitError: If commit fails
     """
     result = subprocess.run(
@@ -94,7 +102,49 @@ def commit(repo_path: Path, message: str) -> None:
     )
 
     if result.returncode != 0:
+        if is_marker_refusal(result.stderr):
+            raise MarkerRefusalError(f"Failed to commit: {result.stderr}")
         raise GitError(f"Failed to commit: {result.stderr}")
+
+
+def is_marker_refusal(message: str) -> bool:
+    """Check whether an error message matches the pre-commit hook's marker-refusal signature.
+
+    Args:
+        message: Error message text (typically git stderr)
+
+    Returns:
+        True if the message contains "Refusing commit" or "conflict markers" (case-insensitive)
+    """
+    lowered = message.lower()
+    return "refusing commit" in lowered or "conflict markers" in lowered
+
+
+def get_marker_flagged_files(repo_path: Path) -> list[str]:
+    """List staged files whose hunks contain conflict markers (the pre-commit hook's own pattern).
+
+    Args:
+        repo_path: Path to git repository
+
+    Returns:
+        List of file paths whose staged hunks contain conflict markers
+
+    Raises:
+        GitError: If the git diff command fails
+    """
+    result = subprocess.run(
+        ["git", "diff", "--cached", "--diff-filter=AM", "-G", "^<<<<<<< ", "--name-only"],
+        cwd=repo_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    if result.returncode != 0:
+        raise GitError(f"Failed to get marker-flagged files: {result.stderr}")
+
+    files = [line.strip() for line in result.stdout.strip().split("\n") if line.strip()]
+    return files
 
 
 def pull_rebase(repo_path: Path) -> None:

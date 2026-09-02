@@ -8,6 +8,7 @@ import pytest
 
 from git_ai_sync.git_operations import (
     GitError,
+    MarkerRefusalError,
     commit,
     continue_merge,
     find_git_repo,
@@ -17,11 +18,13 @@ from git_ai_sync.git_operations import (
     get_commit_log,
     get_current_branch,
     get_head_commit,
+    get_marker_flagged_files,
     has_changes,
     is_ahead_of_remote,
     is_in_conflict_state,
     is_in_merge,
     is_in_rebase,
+    is_marker_refusal,
     pull_merge,
     pull_rebase,
     push,
@@ -389,3 +392,93 @@ class TestGenerateCommitMessage:
     def test_default_prefix(self) -> None:
         msg = generate_commit_message()
         assert msg.startswith("auto: ")
+
+
+def test_is_marker_refusal() -> None:
+    """Return True for the pre-commit hook's marker-refusal signature."""
+    assert (
+        is_marker_refusal("✋ Refusing commit: staged changes contain git merge conflict markers")
+        is True
+    )
+    assert is_marker_refusal("Refusing commit") is True
+    assert is_marker_refusal("conflict markers") is True
+    assert is_marker_refusal("REFUSING COMMIT") is True
+    assert is_marker_refusal("Conflict Markers") is True
+
+
+def test_not_marker_refusal() -> None:
+    """Return False for unrelated failures and the pull-conflict message."""
+    assert is_marker_refusal("Failed to commit: index.lock exists") is False
+    assert (
+        is_marker_refusal("Merge conflicts detected - use 'git-ai-sync resolve' to resolve")
+        is False
+    )
+
+
+def test_get_marker_flagged_files() -> None:
+    """List files the hook's own pattern flags, using its exact argv."""
+    with patch(
+        "subprocess.run",
+        return_value=_mock_result("conflict.md\nclean.md\n"),
+    ) as mock:
+        assert get_marker_flagged_files(REPO) == ["conflict.md", "clean.md"]
+        assert mock.call_args[0][0] == [
+            "git",
+            "diff",
+            "--cached",
+            "--diff-filter=AM",
+            "-G",
+            "^<<<<<<< ",
+            "--name-only",
+        ]
+
+
+def test_get_marker_flagged_files_empty() -> None:
+    """Return empty list when no staged files are flagged."""
+    with patch("subprocess.run", return_value=_mock_result("")):
+        assert get_marker_flagged_files(REPO) == []
+
+
+def test_get_marker_flagged_files_raises() -> None:
+    """Raise GitError when the underlying git command fails."""
+    with (
+        patch(
+            "subprocess.run",
+            return_value=_mock_result(returncode=1, stderr="bad"),
+        ),
+        pytest.raises(GitError),
+    ):
+        get_marker_flagged_files(REPO)
+
+
+def test_commit_raises_marker_refusal() -> None:
+    """Classify the hook's refusal message as MarkerRefusalError."""
+    with (
+        patch(
+            "subprocess.run",
+            return_value=_mock_result(
+                returncode=1,
+                stderr="✋ Refusing commit: staged changes contain git merge conflict markers",
+            ),
+        ),
+        pytest.raises(MarkerRefusalError),
+    ):
+        commit(REPO, "msg")
+
+
+def test_commit_raises_generic_error_for_non_marker() -> None:
+    """Keep non-marker commit failures as plain GitError."""
+    with (
+        patch(
+            "subprocess.run",
+            return_value=_mock_result(returncode=1, stderr="Failed to commit: index.lock exists"),
+        ),
+        pytest.raises(GitError) as excinfo,
+    ):
+        commit(REPO, "msg")
+    assert not isinstance(excinfo.value, MarkerRefusalError)
+
+
+def test_marker_refusal_error_is_git_error() -> None:
+    """MarkerRefusalError subclasses GitError so existing handlers keep working."""
+    assert issubclass(MarkerRefusalError, GitError)

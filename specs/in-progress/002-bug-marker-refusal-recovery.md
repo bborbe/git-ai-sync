@@ -1,6 +1,9 @@
 ---
-status: draft
-kind: bug
+status: prompted
+approved: "2026-09-02T21:11:55Z"
+generating: "2026-09-02T21:20:24Z"
+prompted: "2026-09-02T21:20:24Z"
+branch: dark-factory/bug-marker-refusal-recovery
 ---
 
 ## Summary

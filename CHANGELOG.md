@@ -8,6 +8,11 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 * MINOR version when you add functionality in a backwards-compatible manner, and
 * PATCH version when you make backwards-compatible bug fixes.
 
+## Unreleased
+
+- feat: Classify pre-commit-hook refusals in `git_operations` — add `MarkerRefusalError`, `is_marker_refusal()`, and `get_marker_flagged_files()` so commits refused over conflict-marker content are distinguishable from ordinary commit failures (recovery wiring lands in a later prompt)
+- chore: Add `fallback-version` to `[tool.hatch.version]` so the package builds without a git repository (needed in the hideGit YOLO container)
+
 ## v0.9.0
 
 - feat: `git-ai-sync watch` pushes per-vault heartbeat and last-success timestamps to the Prometheus pushgateway (env `GIT_AI_SYNC_PUSHGATEWAY_URL`/`_USERNAME`/`_PASSWORD`; disabled when unconfigured; failed pushes are logged and never break the sync loop) so a wedged vault is alertable via age-of-last-success while laptop-asleep periods stay silent
