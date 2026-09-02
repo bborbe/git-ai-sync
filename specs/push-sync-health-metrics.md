@@ -38,8 +38,8 @@ A wedged vault is noticed within an hour of its last successful sync, with an Al
 - [ ] **Post-Deploy (Rung-3):** the alert rule (loaded in the nuke repo, applied by the operator) is visible via `amtool --alertmanager.url=http://localhost:9093 alert` as a configured rule after deploy to prod.
   - `deploy_check:` `kubectlnukeprod -n monitoring get alert git-ai-sync-sync-stalled -o jsonpath='{.metadata.name}'`
   - `deploy_target:` `git-ai-sync-sync-stalled`
-- [ ] Negative: with no `GIT_AI_SYNC_PUSHGATEWAY_URL` set, the push-function mock records 0 calls during a watch cycle, and `grep -c 'push' <run log>` returns 0 — plus a startup WARNING is logged ("pushgateway metrics disabled — set GIT_AI_SYNC_PUSHGATEWAY_URL")
-- [ ] Log rotation: log output is capped via `RotatingFileHandler(maxBytes=5_000_000, backupCount=5)` — `ls -l` on the log path after 7 days of cycling shows the live file ≤ 5 MB and ≤ 5 rotated backups
+- [ ] Negative: with no `GIT_AI_SYNC_PUSHGATEWAY_URL` set, the push-function mock records 0 calls during a watch cycle, and `grep -c 'metric push failed' <run log>` returns 0 — plus a startup WARNING is logged ("pushgateway metrics disabled — set GIT_AI_SYNC_PUSHGATEWAY_URL"; the WARNING itself does not count as a push attempt)
+- [ ] Log rotation: log output is capped via `RotatingFileHandler(maxBytes=5_000_000, backupCount=5)` — force rotation by writing > 5 MB through the logger, then `ls -l` on the log path shows the live file ≤ 5 MB and ≤ 5 rotated backups
 
 ## Verification
 
