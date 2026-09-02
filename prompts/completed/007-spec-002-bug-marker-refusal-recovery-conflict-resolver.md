@@ -1,8 +1,13 @@
 ---
-status: approved
+status: completed
 spec: [002-bug-marker-refusal-recovery]
+summary: 'Added marker-aware commit recovery to conflict_resolver: resolve_marker_flagged_files() resolves/stages hook-flagged files with early-stop on failure, and commit_with_marker_recovery() retries refused commits with a hard 3-attempt bound, with 8 new module-level tests covering success, multiple files, early stop, bounded retries, non-marker propagation, and empty-flag cases; CHANGELOG updated'
+execution_id: git-ai-sync-marker-refusal-exec-007-spec-002-bug-marker-refusal-recovery-conflict-resolver
+dark-factory-version: dev
 created: "2026-09-02T21:20:00Z"
 queued: "2026-09-02T21:25:33Z"
+started: "2026-09-02T21:30:04Z"
+completed: "2026-09-02T21:32:12Z"
 ---
 
 <summary>
