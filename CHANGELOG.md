@@ -8,7 +8,7 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 * MINOR version when you add functionality in a backwards-compatible manner, and
 * PATCH version when you make backwards-compatible bug fixes.
 
-## Unreleased
+## v0.9.1
 
 - fix: git-ai-sync pushgateway metrics use POST instead of PUT so heartbeat and last-success timestamps coexist on the gateway (PUT replaced the whole group and erased last-success every cycle, which would have kept the sync-stall alert from ever firing)
 
