@@ -1,8 +1,9 @@
 ---
-status: prompted
+status: verifying
 approved: "2026-09-02T21:11:55Z"
 generating: "2026-09-02T21:20:24Z"
 prompted: "2026-09-02T21:20:24Z"
+verifying: "2026-09-02T21:36:21Z"
 branch: dark-factory/bug-marker-refusal-recovery
 ---
 
