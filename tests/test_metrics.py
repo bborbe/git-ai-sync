@@ -35,7 +35,7 @@ class TestPushHeartbeat:
             assert (
                 req.full_url == "https://pushgateway.test/metrics/job/git_ai_sync/instance/Personal"
             )
-            assert req.method == "PUT"
+            assert req.method == "POST"
             assert req.headers["Authorization"] == (
                 "Basic " + base64.b64encode(b"monitoring:s3cret").decode()
             )
@@ -92,6 +92,20 @@ class TestPushHeartbeat:
 
 
 class TestPushLastSuccess:
+    def test_push_last_success_uses_post(self) -> None:
+        with (
+            patch("git_ai_sync.metrics.urlopen", return_value=MagicMock()) as mock_urlopen,
+            patch("git_ai_sync.metrics.time.time", return_value=1720000000.0),
+        ):
+            result = push_last_success(
+                "https://pushgateway.test", "monitoring", "s3cret", Path("/vaults/Personal")
+            )
+            assert result is True
+            req = mock_urlopen.call_args.args[0]
+            assert req.method == "POST"
+            assert "instance/" in req.full_url
+            assert LAST_SUCCESS_METRIC in req.data.decode()
+
     def test_push_last_success_metric_name(self) -> None:
         with (
             patch("git_ai_sync.metrics.urlopen", return_value=MagicMock()) as mock_urlopen,

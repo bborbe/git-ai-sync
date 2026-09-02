@@ -76,7 +76,9 @@ def _push_metric(
         token = base64.b64encode(f"{username}:{password}".encode()).decode()
         headers["Authorization"] = f"Basic {token}"
 
-    request = Request(url, data=body.encode("utf-8"), headers=headers, method="PUT")
+    # POST (not PUT) merges into the grouping-key group so heartbeat and last-success
+    # coexist; PUT replaces the whole group and would erase the sibling metric.
+    request = Request(url, data=body.encode("utf-8"), headers=headers, method="POST")
     try:
         urlopen(request, timeout=PUSH_TIMEOUT_SECONDS)
     except Exception as e:

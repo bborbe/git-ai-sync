@@ -1,7 +1,13 @@
 ---
-spec: ["002-push-sync-health-metrics"]
-status: draft
+status: completed
+spec: [002-push-sync-health-metrics]
+summary: 'Changed pushgateway metric push from PUT to POST so heartbeat and last-success timestamps coexist on the gateway, updated the heartbeat test assertion, added a last-success POST regression test, and added a fix: bullet to CHANGELOG.md Unreleased'
+execution_id: git-ai-sync-pushgateway-post-exec-008-fix-pushgateway-post-merge
+dark-factory-version: dev
 created: "2026-09-02"
+queued: "2026-09-02T21:36:47Z"
+started: "2026-09-02T21:37:12Z"
+completed: "2026-09-02T21:38:06Z"
 ---
 
 <summary>
