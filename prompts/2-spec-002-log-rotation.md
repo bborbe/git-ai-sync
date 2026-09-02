@@ -93,18 +93,19 @@ Note on the observed problem: `docs/launchd-service.md` and `docs/systemd-user-s
 
    c2. `test_main_wires_log_file_into_configure_logging` — place these in `tests/test_main.py` (where the existing `TestMainDispatch` tests live) and give them the same scaffolding: patch `sys.argv` (e.g. `["git-ai-sync", "version"]` — `main()` calls `parse_args()` first, and without a patched argv the real `sys.argv` under pytest raises `SystemExit` from the `required=True` subparsers before `configure_logging` is ever invoked), patch `git_ai_sync.__main__.setup_signal_handlers`, patch `git_ai_sync.config.Config` to return a config with `log_file="/tmp/x/git-ai-sync.log"`, patch `git_ai_sync.__main__.configure_logging`, then invoke `main()` → `configure_logging` was called with `Path("/tmp/x/git-ai-sync.log")` as its second arg. Add `test_main_wires_none_when_log_file_unset` — config with `log_file=None` → second arg is `None`. (These cover the modified `main()` → `configure_logging` bridge in requirement 3.)
 
-   d. **Handler cleanup** — because a `RotatingFileHandler` on the root logger persists across tests in the same process, add a fixture (or try/finally in each new test) that removes and closes any `RotatingFileHandler` from the root logger after the test (with the needed imports: `from collections.abc import Generator`, `import logging.handlers`):
+   d. **Handler cleanup** — because handlers attached to the root logger persist across tests in the same process, add a fixture that snapshots the root logger's handler list before the test and removes + closes any handler added during it (covers both the `RotatingFileHandler` and the `StreamHandler(sys.stderr)` that `force=True` installs). Imports needed: `from collections.abc import Generator`, `import logging`, `import logging.handlers`:
       ```python
       @pytest.fixture(autouse=True)
       def _cleanup_file_handlers() -> Generator[None]:
+          original = list(logging.getLogger().handlers)
           yield
           root = logging.getLogger()
           for handler in list(root.handlers):
-              if isinstance(handler, logging.handlers.RotatingFileHandler):
+              if handler not in original:
                   handler.close()
                   root.removeHandler(handler)
       ```
-      This prevents the rotation test's file handler from leaking into other tests.
+      This prevents the rotation test's handlers from leaking into other tests.
 
 5. **Update `tests/test_config.py`.**
    - In `TestConfigDefaults.test_defaults`, add `monkeypatch.delenv("GIT_AI_SYNC_LOG_FILE", raising=False)` and assert `config.log_file is None`.
