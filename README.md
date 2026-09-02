@@ -94,8 +94,25 @@ launchctl load ~/Library/LaunchAgents/com.github.bborbe.git-ai-sync-obsidian.pli
 | `GIT_AI_SYNC_MODEL` | Claude model | `claude-sonnet-4-5-20250929` |
 | `GIT_AI_SYNC_COMMIT_PREFIX` | Commit message prefix | `auto` |
 | `GIT_AI_SYNC_STRATEGY` | Pull strategy (merge or rebase) | `merge` |
+| `GIT_AI_SYNC_PUSHGATEWAY_URL` | Prometheus pushgateway base URL (e.g. https://pushgateway.dev.nuke.benjamin-borbe.de) | unset (disabled) |
+| `GIT_AI_SYNC_PUSHGATEWAY_USERNAME` | Pushgateway basic-auth username | unset |
+| `GIT_AI_SYNC_PUSHGATEWAY_PASSWORD` | Pushgateway basic-auth password | unset |
+| `GIT_AI_SYNC_LOG_FILE` | Log file path for the rotating file handler (5 MB x 5 backups) | unset (stderr only) |
 
 `ANTHROPIC_API_KEY` is only required for conflict resolution (uses Claude Code auth otherwise).
+
+## Metrics
+
+`git-ai-sync watch` pushes two per-vault metrics to the configured Prometheus pushgateway:
+
+- `git_ai_sync_heartbeat_timestamp{vault="<name>"}` — pushed on every watch cycle, regardless of sync outcome
+- `git_ai_sync_last_success_timestamp{vault="<name>"}` — pushed after each successful sync
+
+A fresh heartbeat with a stale last-success means the vault has stopped landing commits while the watcher is alive — alertable via age-of-last-success. Laptop-asleep periods stay silent because both series go stale together.
+
+Credentials come from `GIT_AI_SYNC_PUSHGATEWAY_USERNAME` / `GIT_AI_SYNC_PUSHGATEWAY_PASSWORD` and are never logged. Without `GIT_AI_SYNC_PUSHGATEWAY_URL` the feature is disabled and makes no network calls; failed pushes are logged and never break the sync loop.
+
+**Caveat:** exactly ONE watcher per vault is required — two watchers pushing the same vault overwrite each other's series and can mask a wedge.
 
 ## Troubleshooting
 
