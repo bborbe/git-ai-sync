@@ -113,7 +113,7 @@ def cmd_watch(args: argparse.Namespace) -> None:
     import time
     from pathlib import Path
 
-    from git_ai_sync import git_operations
+    from git_ai_sync import git_operations, metrics
     from git_ai_sync.config import Config
     from git_ai_sync.file_watcher import ChangeTracker
 
@@ -141,6 +141,11 @@ def cmd_watch(args: argparse.Namespace) -> None:
 
     logger.info(f"Interval: {interval}s (skips if actively editing)")
 
+    if config.pushgateway_url:
+        logger.info(f"Pushgateway metrics enabled: {config.pushgateway_url}")
+    else:
+        logger.warning("pushgateway metrics disabled — set GIT_AI_SYNC_PUSHGATEWAY_URL")
+
     # Start filesystem watcher to track changes
     tracker = ChangeTracker(git_repo)
     tracker.start()
@@ -150,6 +155,14 @@ def cmd_watch(args: argparse.Namespace) -> None:
         while True:
             iteration += 1
             time.sleep(interval)
+
+            if config.pushgateway_url:
+                metrics.push_heartbeat(
+                    config.pushgateway_url,
+                    config.pushgateway_username,
+                    config.pushgateway_password,
+                    git_repo,
+                )
 
             # Check if files changed recently (within interval)
             seconds_since_change = tracker.get_seconds_since_last_change()
@@ -214,6 +227,13 @@ def cmd_watch(args: argparse.Namespace) -> None:
                         logger.info("Local branch is ahead of remote, pushing...")
                         git_operations.push(git_repo)
                         logger.info("Pushed to remote")
+                        if config.pushgateway_url:
+                            metrics.push_last_success(
+                                config.pushgateway_url,
+                                config.pushgateway_username,
+                                config.pushgateway_password,
+                                git_repo,
+                            )
                     else:
                         logger.info("No local changes")
                     continue
@@ -221,6 +241,13 @@ def cmd_watch(args: argparse.Namespace) -> None:
                 # Push to remote
                 git_operations.push(git_repo)
                 logger.info("Pushed to remote")
+                if config.pushgateway_url:
+                    metrics.push_last_success(
+                        config.pushgateway_url,
+                        config.pushgateway_username,
+                        config.pushgateway_password,
+                        git_repo,
+                    )
 
             except git_operations.GitError as e:
                 logger.error(f"Sync failed: {e}")

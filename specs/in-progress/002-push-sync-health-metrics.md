@@ -1,6 +1,9 @@
 ---
-status: draft
-created: "2026-09-02"
+status: prompted
+approved: "2026-09-02T19:48:42Z"
+generating: "2026-09-02T19:55:54Z"
+prompted: "2026-09-02T19:55:54Z"
+branch: dark-factory/push-sync-health-metrics
 ---
 
 ## Summary

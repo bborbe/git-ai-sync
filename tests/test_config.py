@@ -11,6 +11,9 @@ class TestConfigDefaults:
         monkeypatch.delenv("GIT_AI_SYNC_COMMIT_PREFIX", raising=False)
         monkeypatch.delenv("GIT_AI_SYNC_MODEL", raising=False)
         monkeypatch.delenv("GIT_AI_SYNC_LOG_LEVEL", raising=False)
+        monkeypatch.delenv("GIT_AI_SYNC_PUSHGATEWAY_URL", raising=False)
+        monkeypatch.delenv("GIT_AI_SYNC_PUSHGATEWAY_USERNAME", raising=False)
+        monkeypatch.delenv("GIT_AI_SYNC_PUSHGATEWAY_PASSWORD", raising=False)
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         monkeypatch.delenv("ANTHROPIC_MODEL", raising=False)
 
@@ -19,6 +22,9 @@ class TestConfigDefaults:
         assert config.commit_prefix == "auto"
         assert config.model == "claude-sonnet-4-5-20250929"
         assert config.log_level == "INFO"
+        assert config.pushgateway_url is None
+        assert config.pushgateway_username is None
+        assert config.pushgateway_password is None
 
     def test_anthropic_key_none_by_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
@@ -61,3 +67,12 @@ class TestConfigFromEnv:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-key-123")
         config = Config()
         assert config.anthropic_api_key == "sk-test-key-123"
+
+    def test_pushgateway_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("GIT_AI_SYNC_PUSHGATEWAY_URL", "https://pushgateway.test")
+        monkeypatch.setenv("GIT_AI_SYNC_PUSHGATEWAY_USERNAME", "monitoring")
+        monkeypatch.setenv("GIT_AI_SYNC_PUSHGATEWAY_PASSWORD", "s3cret")
+        config = Config()
+        assert config.pushgateway_url == "https://pushgateway.test"
+        assert config.pushgateway_username == "monitoring"
+        assert config.pushgateway_password == "s3cret"

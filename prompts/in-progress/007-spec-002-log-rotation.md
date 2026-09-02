@@ -1,3 +1,8 @@
+---
+status: approved
+created: "2026-09-02T20:35:03Z"
+queued: "2026-09-02T20:35:03Z"
+---
 # Rotating log file handler for bounded log output
 
 ---

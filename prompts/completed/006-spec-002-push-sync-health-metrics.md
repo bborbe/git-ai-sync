@@ -1,3 +1,13 @@
+---
+status: completed
+summary: 'Added per-vault pushgateway metrics (heartbeat + last-success) to git-ai-sync watch: new metrics module, config fields, watch-loop wiring, tests, README and CHANGELOG updates; make precommit passes'
+execution_id: git-ai-sync-alert-sync-stalled-exec-006-spec-002-push-sync-health-metrics
+dark-factory-version: dev
+created: "2026-09-02T20:35:03Z"
+queued: "2026-09-02T20:35:03Z"
+started: "2026-09-02T20:35:05Z"
+completed: "2026-09-02T20:40:48Z"
+---
 # Push heartbeat and last-success metrics to the Prometheus pushgateway
 
 ---

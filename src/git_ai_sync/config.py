@@ -32,3 +32,17 @@ class Config(BaseSettings):
 
     # Logging
     log_level: str = Field(default="INFO", description="Logging level")
+
+    # Pushgateway metrics
+    pushgateway_url: str | None = Field(
+        default=None,
+        description="Prometheus pushgateway base URL (e.g. https://pushgateway.dev.nuke.benjamin-borbe.de)",
+    )
+    pushgateway_username: str | None = Field(
+        default=None,
+        description="Pushgateway basic-auth username",
+    )
+    pushgateway_password: str | None = Field(
+        default=None,
+        description="Pushgateway basic-auth password",
+    )

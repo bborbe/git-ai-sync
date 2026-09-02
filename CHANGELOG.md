@@ -8,6 +8,10 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 * MINOR version when you add functionality in a backwards-compatible manner, and
 * PATCH version when you make backwards-compatible bug fixes.
 
+## Unreleased
+
+- feat: `git-ai-sync watch` pushes per-vault heartbeat and last-success timestamps to the Prometheus pushgateway (env `GIT_AI_SYNC_PUSHGATEWAY_URL`/`_USERNAME`/`_PASSWORD`; disabled when unconfigured; failed pushes are logged and never break the sync loop) so a wedged vault is alertable via age-of-last-success while laptop-asleep periods stay silent
+
 ## v0.8.0
 
 - feat: Add `--strategy {merge,rebase}` flag to `watch` and `sync` commands (env `GIT_AI_SYNC_STRATEGY`, default `merge`) so the pull strategy is configurable per-vault; merge default avoids the `git pull --rebase` wedge on redundant-commit detection in autocommit + multi-client vaults
