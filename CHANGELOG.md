@@ -8,7 +8,7 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 * MINOR version when you add functionality in a backwards-compatible manner, and
 * PATCH version when you make backwards-compatible bug fixes.
 
-## Unreleased
+## v0.9.0
 
 - feat: `git-ai-sync watch` pushes per-vault heartbeat and last-success timestamps to the Prometheus pushgateway (env `GIT_AI_SYNC_PUSHGATEWAY_URL`/`_USERNAME`/`_PASSWORD`; disabled when unconfigured; failed pushes are logged and never break the sync loop) so a wedged vault is alertable via age-of-last-success while laptop-asleep periods stay silent
 - feat: Log output can be written to a rotating file (`RotatingFileHandler`, 5 MB x 5 backups) via `GIT_AI_SYNC_LOG_FILE` so long-running watch services cannot grow logs unbounded
