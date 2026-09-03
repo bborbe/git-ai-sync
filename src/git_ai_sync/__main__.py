@@ -243,6 +243,13 @@ def cmd_watch(args: argparse.Namespace) -> None:
                             )
                     else:
                         logger.info("No local changes")
+                        if config.pushgateway_url:
+                            metrics.push_last_success(
+                                config.pushgateway_url,
+                                config.pushgateway_username,
+                                config.pushgateway_password,
+                                git_repo,
+                            )
                     continue
 
                 # Push to remote

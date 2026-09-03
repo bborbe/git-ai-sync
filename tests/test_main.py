@@ -474,7 +474,41 @@ class TestCmdWatchDispatch:
             mock_heartbeat.assert_called_once()
             assert mock_heartbeat.call_args.args[0] == "https://pushgateway.test"
             assert mock_heartbeat.call_args.args[-1] == Path("/repo")
-            mock_last_success.assert_not_called()
+            mock_last_success.assert_called_once()
+            mock_git.push.assert_not_called()
+
+    def test_watch_last_success_on_no_local_changes_cycle(self) -> None:
+        import contextlib
+
+        from git_ai_sync.__main__ import cmd_watch
+        from git_ai_sync.file_watcher import ChangeTracker
+
+        args = argparse.Namespace(path=".", interval=30, strategy="merge")
+        mock_git = _mock_git_ops()
+        mock_git.find_git_repo.return_value = Path("/repo")
+        mock_git.get_current_branch.return_value = "master"
+        mock_git.has_changes.return_value = False
+        mock_git.is_ahead_of_remote.return_value = False
+        # First sleep returns None (loop body runs once), second raises to break loop
+        sleep_side_effect: list[object] = [None, KeyboardInterrupt()]
+        with (
+            patch(_GIT_OPS, mock_git),
+            patch(_CONFIG) as mock_config,
+            patch(_ACQUIRE_LOCK),
+            patch("git_ai_sync.metrics.push_heartbeat") as mock_heartbeat,
+            patch("git_ai_sync.metrics.push_last_success") as mock_last_success,
+            patch.object(ChangeTracker, "start"),
+            patch.object(ChangeTracker, "stop"),
+            patch.object(ChangeTracker, "get_seconds_since_last_change", return_value=999),
+            patch("time.sleep", side_effect=sleep_side_effect),
+        ):
+            mock_config.return_value.pushgateway_url = "https://pushgateway.test"
+            with contextlib.suppress(KeyboardInterrupt):
+                cmd_watch(args)
+            mock_heartbeat.assert_called_once()
+            mock_last_success.assert_called_once()
+            assert mock_last_success.call_args.args[0] == "https://pushgateway.test"
+            assert mock_last_success.call_args.args[-1] == Path("/repo")
             mock_git.push.assert_not_called()
 
     def test_watch_heartbeat_on_debounce_skip_cycle(self) -> None:

@@ -14,6 +14,10 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 - feat: Add marker-aware commit recovery to `conflict_resolver` — `resolve_marker_flagged_files()` resolves and re-stages files flagged by the pre-commit hook (stopping early on failure), and `commit_with_marker_recovery()` retries a refused commit with bounded recovery (max 3 attempts; non-marker failures propagate unchanged) so auto-sync recovers from marker refusals instead of wedging
 - fix: Auto-recover when the global pre-commit hook refuses a commit over conflict-marker content — detect the refusal signature, resolve flagged files via the existing AI conflict resolver, re-stage, and retry the commit up to 3 attempts; on final failure sync and watch both exit non-zero with the still-flagged files and a `git-ai-sync resolve` pointer, so watch mode no longer loops silently forever on this failure
 
+## v0.9.2
+
+- fix: git-ai-sync pushes the last-success timestamp on every watch cycle that completes without error, including idle no-change cycles, so the sync-stall alert measures "last healthy cycle" (matching the /watch probe) instead of "last push" and does not false-fire on quiet-but-healthy vaults
+
 ## v0.9.1
 
 - fix: git-ai-sync pushgateway metrics use POST instead of PUT so heartbeat and last-success timestamps coexist on the gateway (PUT replaced the whole group and erased last-success every cycle, which would have kept the sync-stall alert from ever firing)
