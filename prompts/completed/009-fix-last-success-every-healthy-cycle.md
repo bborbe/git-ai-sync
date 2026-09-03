@@ -1,7 +1,13 @@
 ---
-spec: ["002-push-sync-health-metrics"]
-status: draft
+status: completed
+spec: [002-push-sync-health-metrics]
+summary: git-ai-sync now pushes the last-success timestamp on every watch cycle that completes without error, including idle no-change cycles, so the sync-stall alert measures last healthy cycle instead of last push
+execution_id: git-ai-sync-last-success-cycle-exec-009-fix-last-success-every-healthy-cycle
+dark-factory-version: dev
 created: "2026-09-03"
+queued: "2026-09-03T05:33:05Z"
+started: "2026-09-03T05:33:29Z"
+completed: "2026-09-03T05:34:50Z"
 ---
 
 <summary>

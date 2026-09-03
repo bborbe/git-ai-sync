@@ -63,7 +63,7 @@ A wedged vault is noticed within an hour of its last successful sync, with an Al
 ## Desired Behavior
 
 1. On every watch cycle (`watch` loop iteration), git-ai-sync pushes `git_ai_sync_heartbeat_timestamp{vault="<vault-name>"}` to the configured pushgateway, success or failure of that cycle
-2. When a watch cycle completes a successful sync (push to remote succeeded), git-ai-sync additionally pushes `git_ai_sync_last_success_timestamp{vault="<vault-name>"}` — on success only
+2. When a watch cycle completes successfully — including idle no-change cycles — git-ai-sync additionally pushes `git_ai_sync_last_success_timestamp{vault="<vault-name>"}` — on success only
 3. The pushgateway target is configurable via environment (`GIT_AI_SYNC_PUSHGATEWAY_URL`); basic-auth credentials via `GIT_AI_SYNC_PUSHGATEWAY_USERNAME` / `GIT_AI_SYNC_PUSHGATEWAY_PASSWORD`
 4. When no pushgateway URL is configured, metric pushing is fully disabled — zero network calls, no behavior change to the sync loop. A startup WARNING is logged ("pushgateway metrics disabled — set GIT_AI_SYNC_PUSHGATEWAY_URL") so the disable state is observable rather than silent
 5. A failed metric push is logged at WARNING and does not abort, retry-storm, or otherwise affect the sync cycle
