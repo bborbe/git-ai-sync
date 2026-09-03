@@ -30,6 +30,8 @@ The debounce-skip `continue` (earlier in the loop, `seconds_since_change < inter
 Read `tests/test_main.py` — the `TestCmdWatchDispatch` tests: `test_watch_last_success_after_successful_sync` (d) and `test_watch_last_success_zero_after_failed_sync` (e). These pin the current behavior. Add a new test for the no-local-changes cycle. The patch targets are `git_ai_sync.metrics.push_heartbeat` / `git_ai_sync.metrics.push_last_success` (as established by `test_watch_heartbeat_one_per_cycle`).
 
 Read `CHANGELOG.md` — add a `fix:` bullet under `## Unreleased` (create the section directly above the highest `## vX.Y.Z` heading, currently `## v0.9.1`, if absent).
+
+Read `specs/in-progress/002-push-sync-health-metrics.md` — Desired Behavior #2 currently says last_success is pushed when "push to remote succeeded". Update the wording to "when a watch cycle completes successfully — including idle no-change cycles" so the durable spec contract matches the shipped behavior (the Acceptance Criterion #2 wording "only after a successful sync" already reads consistently).
 </context>
 
 <requirements>
@@ -37,6 +39,7 @@ Read `CHANGELOG.md` — add a `fix:` bullet under `## Unreleased` (create the se
    ```python
    else:
        logger.info("No local changes")
+       continue
    ```
    to:
    ```python
@@ -49,15 +52,14 @@ Read `CHANGELOG.md` — add a `fix:` bullet under `## Unreleased` (create the se
                config.pushgateway_password,
                git_repo,
            )
+       continue
    ```
-   This makes a no-op healthy cycle push last_success, matching the `/watch` probe's "No local changes counts as success" semantics. Do NOT touch the `is_ahead_of_remote` branch or the post-push block — they already push correctly.
+   The existing `continue` stays — the loop must not fall through to the post-push block. This makes a no-op healthy cycle push last_success, matching the `/watch` probe's "No local changes counts as success" semantics. Do NOT touch the `is_ahead_of_remote` branch or the post-push block — they already push correctly.
 
 2. In `tests/test_main.py`, add `test_watch_last_success_on_no_local_changes_cycle` — same scaffolding as `test_watch_heartbeat_one_per_cycle` (patch `git_ai_sync.metrics.push_heartbeat` and `git_ai_sync.metrics.push_last_success`; config mock with `pushgateway_url="https://pushgateway.test"`; `has_local_changes=False`; `is_ahead_of_remote=False`; one loop iteration with `sleep_side_effect = [None, KeyboardInterrupt()]` + `contextlib.suppress(KeyboardInterrupt)`) → assert `push_heartbeat.assert_called_once()` AND `push_last_success.assert_called_once()` (both with the URL as first arg and `Path("/repo")` as last), `mock_git.push.assert_not_called()`. This is the exact scenario the `else` branch handles.
 
-3. Confirm the existing tests still pin the correct negative cases:
-   - `test_watch_heartbeat_on_debounce_skip_cycle` — skip cycle: `push_last_success.assert_not_called()` (unchanged — debounce skip is not a healthy cycle)
-   - `test_watch_last_success_zero_after_failed_sync` — `mock_git.push.side_effect = GitError(...)`: `push_last_success.assert_not_called()` (unchanged — failed cycle)
-   Do not modify these tests; they must still pass.
+3. Update `test_watch_heartbeat_one_per_cycle` in `tests/test_main.py` — its scenario (no local changes, not ahead, pushgateway configured) is now a healthy cycle, so its `mock_last_success.assert_not_called()` (line ~460) MUST become `mock_last_success.assert_called_once()`. If the new test in requirement 2 is kept as a separate case, keep both; if it fully duplicates this test, fold the assertion change into `test_watch_heartbeat_one_per_cycle` and drop the new test — either way both tests must assert `push_last_success` IS called for the no-local-changes cycle.
+   Confirm the two negative cases stay pinned: `test_watch_heartbeat_on_debounce_skip_cycle` and `test_watch_last_success_zero_after_failed_sync` — `push_last_success.assert_not_called()` (unchanged; debounce skip and failed cycles are not healthy). Do not modify these two; they must still pass.
 
 4. In `CHANGELOG.md`, under `## Unreleased` (create if absent, directly above `## v0.9.1`), add exactly one bullet:
    - `- fix: git-ai-sync pushes the last-success timestamp on every watch cycle that completes without error, including idle no-change cycles, so the sync-stall alert measures "last healthy cycle" (matching the /watch probe) instead of "last push" and does not false-fire on quiet-but-healthy vaults`
