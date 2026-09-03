@@ -8,6 +8,10 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 * MINOR version when you add functionality in a backwards-compatible manner, and
 * PATCH version when you make backwards-compatible bug fixes.
 
+## Unreleased
+
+- fix: git-ai-sync Claude conflict resolver skips the SDK's informational rate_limit_event stream message (and any unrecognized message type) instead of aborting resolution with a parse error, so conflict resolution completes and stages the file (claude-code-sdk 0.0.25 has no released fix)
+
 ## v0.10.0
 
 - feat: Classify pre-commit-hook refusals in `git_operations` — add `MarkerRefusalError`, `is_marker_refusal()`, and `get_marker_flagged_files()` so commits refused over conflict-marker content are distinguishable from ordinary commit failures (recovery wiring lands in a later prompt)

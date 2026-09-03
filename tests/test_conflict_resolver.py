@@ -8,6 +8,7 @@ from claude_code_sdk import ClaudeSDKError
 
 from git_ai_sync.conflict_resolver import (
     ConflictError,
+    _parse_message_tolerant,
     commit_with_marker_recovery,
     do_continue_rebase,
     parse_conflict_markers,
@@ -116,6 +117,52 @@ def _mock_claude_client(response_text: str) -> MagicMock:
     return mock_client_cls
 
 
+def _mock_claude_client_skipping_first(skipped: object, response_text: str) -> MagicMock:
+    """Create a mock ClaudeSDKClient that yields a skipped message then the response."""
+    from claude_code_sdk import AssistantMessage, TextBlock
+
+    mock_text_block = MagicMock(spec=TextBlock)
+    mock_text_block.text = response_text
+    mock_text_block.__class__ = TextBlock
+
+    mock_message = MagicMock(spec=AssistantMessage)
+    mock_message.content = [mock_text_block]
+    mock_message.__class__ = AssistantMessage
+
+    mock_client = AsyncMock()
+    mock_client.query = AsyncMock()
+    mock_client.receive_response = MagicMock(return_value=_AsyncIter([skipped, mock_message]))
+
+    mock_client_cls = MagicMock()
+    mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+
+    return mock_client_cls
+
+
+def _rate_limit_event_mock() -> MagicMock:
+    """Create a mock non-assistant message shaped like the CLI's rate_limit_event."""
+    event = MagicMock()
+    event.type = "rate_limit_event"
+    event.rate_limit_info = {"status": "allowed", "isUsingOverage": False}
+    return event
+
+
+class TestParseMessageTolerance:
+    def test_parse_message_tolerates_rate_limit_event(self) -> None:
+        payload = {
+            "type": "rate_limit_event",
+            "uuid": "test-uuid",
+            "rate_limit_info": {"status": "allowed", "isUsingOverage": False},
+        }
+        assert _parse_message_tolerant(payload) is None
+
+    def test_wrapper_installed_on_sdk_module(self) -> None:
+        from claude_code_sdk._internal import message_parser as _message_parser
+
+        assert _message_parser.parse_message is _parse_message_tolerant
+
+
 class TestResolveConflictWithClaude:
     async def test_no_conflicts_returns_content(self) -> None:
         result = await resolve_conflict_with_claude("file.md", "clean content")
@@ -123,6 +170,12 @@ class TestResolveConflictWithClaude:
 
     async def test_returns_resolved_content(self) -> None:
         mock_cls = _mock_claude_client("resolved content")
+        with patch("git_ai_sync.conflict_resolver.ClaudeSDKClient", mock_cls):
+            result = await resolve_conflict_with_claude("file.md", CONFLICT_CONTENT)
+            assert result == "resolved content"
+
+    async def test_resolve_conflict_with_claude_skips_rate_limit_event(self) -> None:
+        mock_cls = _mock_claude_client_skipping_first(_rate_limit_event_mock(), "resolved content")
         with patch("git_ai_sync.conflict_resolver.ClaudeSDKClient", mock_cls):
             result = await resolve_conflict_with_claude("file.md", CONFLICT_CONTENT)
             assert result == "resolved content"

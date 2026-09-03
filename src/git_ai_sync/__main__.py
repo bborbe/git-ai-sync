@@ -587,6 +587,11 @@ def cmd_doctor() -> None:
         async def test_session() -> bool:
             from claude_code_sdk import AssistantMessage, TextBlock
 
+            # Install the SDK message-parser tolerance so informational stream
+            # messages (e.g. rate_limit_event) don't abort the session test.
+            from git_ai_sync import conflict_resolver
+
+            conflict_resolver._install_message_parser_tolerance()
             try:
                 options = ClaudeCodeOptions(model=config.model)
                 async with ClaudeSDKClient(options=options) as client:
