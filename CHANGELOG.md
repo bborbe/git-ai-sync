@@ -12,8 +12,11 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 
 - feat: Classify pre-commit-hook refusals in `git_operations` — add `MarkerRefusalError`, `is_marker_refusal()`, and `get_marker_flagged_files()` so commits refused over conflict-marker content are distinguishable from ordinary commit failures (recovery wiring lands in a later prompt)
 - feat: Add marker-aware commit recovery to `conflict_resolver` — `resolve_marker_flagged_files()` resolves and re-stages files flagged by the pre-commit hook (stopping early on failure), and `commit_with_marker_recovery()` retries a refused commit with bounded recovery (max 3 attempts; non-marker failures propagate unchanged) so auto-sync recovers from marker refusals instead of wedging
-- chore: Add `fallback-version` to `[tool.hatch.version]` so the package builds without a git repository (needed in the hideGit YOLO container)
 - fix: Auto-recover when the global pre-commit hook refuses a commit over conflict-marker content — detect the refusal signature, resolve flagged files via the existing AI conflict resolver, re-stage, and retry the commit up to 3 attempts; on final failure sync and watch both exit non-zero with the still-flagged files and a `git-ai-sync resolve` pointer, so watch mode no longer loops silently forever on this failure
+
+## v0.9.1
+
+- fix: git-ai-sync pushgateway metrics use POST instead of PUT so heartbeat and last-success timestamps coexist on the gateway (PUT replaced the whole group and erased last-success every cycle, which would have kept the sync-stall alert from ever firing)
 
 ## v0.9.0
 

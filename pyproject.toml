@@ -39,6 +39,8 @@ package = true
 
 [tool.hatch.version]
 source = "vcs"
+# hideGit masks .git as a char device, breaking setuptools-scm; fallback is only
+# used when git is unavailable, so tag-based builds are unaffected.
 fallback-version = "0.9.0"
 
 [tool.hatch.build.targets.wheel]
