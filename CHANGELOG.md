@@ -8,7 +8,7 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 * MINOR version when you add functionality in a backwards-compatible manner, and
 * PATCH version when you make backwards-compatible bug fixes.
 
-## Unreleased
+## v0.10.1
 
 - fix: git-ai-sync Claude conflict resolver skips the SDK's informational rate_limit_event stream message (and any unrecognized message type) instead of aborting resolution with a parse error, so conflict resolution completes and stages the file (claude-code-sdk 0.0.25 has no released fix)
 
