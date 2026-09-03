@@ -31,7 +31,7 @@ Read `tests/test_main.py` — the `TestCmdWatchDispatch` tests: `test_watch_last
 
 Read `CHANGELOG.md` — add a `fix:` bullet under `## Unreleased` (create the section directly above the highest `## vX.Y.Z` heading, currently `## v0.9.1`, if absent).
 
-Read `specs/in-progress/002-push-sync-health-metrics.md` — Desired Behavior #2 currently says last_success is pushed when "push to remote succeeded". Update the wording to "when a watch cycle completes successfully — including idle no-change cycles" so the durable spec contract matches the shipped behavior (the Acceptance Criterion #2 wording "only after a successful sync" already reads consistently).
+Read `specs/in-progress/002-push-sync-health-metrics.md` — Desired Behavior #2 currently says last_success is pushed when "push to remote succeeded" (see requirement 5 for the edit).
 </context>
 
 <requirements>
@@ -39,7 +39,6 @@ Read `specs/in-progress/002-push-sync-health-metrics.md` — Desired Behavior #2
    ```python
    else:
        logger.info("No local changes")
-       continue
    ```
    to:
    ```python
@@ -52,9 +51,8 @@ Read `specs/in-progress/002-push-sync-health-metrics.md` — Desired Behavior #2
                config.pushgateway_password,
                git_repo,
            )
-       continue
    ```
-   The existing `continue` stays — the loop must not fall through to the post-push block. This makes a no-op healthy cycle push last_success, matching the `/watch` probe's "No local changes counts as success" semantics. Do NOT touch the `is_ahead_of_remote` branch or the post-push block — they already push correctly.
+   Keep the existing `continue` (line ~239) untouched — it is a SIBLING of this `if/else` (shared by the `is_ahead_of_remote` branch) and sits at the same indentation as `else:`, NOT inside it. The loop must not fall through to the post-push block. This makes a no-op healthy cycle push last_success, matching the `/watch` probe's "No local changes counts as success" semantics. Do NOT touch the `is_ahead_of_remote` branch or the post-push block — they already push correctly.
 
 2. In `tests/test_main.py`, add `test_watch_last_success_on_no_local_changes_cycle` — same scaffolding as `test_watch_heartbeat_one_per_cycle` (patch `git_ai_sync.metrics.push_heartbeat` and `git_ai_sync.metrics.push_last_success`; config mock with `pushgateway_url="https://pushgateway.test"`; `has_local_changes=False`; `is_ahead_of_remote=False`; one loop iteration with `sleep_side_effect = [None, KeyboardInterrupt()]` + `contextlib.suppress(KeyboardInterrupt)`) → assert `push_heartbeat.assert_called_once()` AND `push_last_success.assert_called_once()` (both with the URL as first arg and `Path("/repo")` as last), `mock_git.push.assert_not_called()`. This is the exact scenario the `else` branch handles.
 
@@ -64,7 +62,8 @@ Read `specs/in-progress/002-push-sync-health-metrics.md` — Desired Behavior #2
 4. In `CHANGELOG.md`, under `## Unreleased` (create if absent, directly above `## v0.9.1`), add exactly one bullet:
    - `- fix: git-ai-sync pushes the last-success timestamp on every watch cycle that completes without error, including idle no-change cycles, so the sync-stall alert measures "last healthy cycle" (matching the /watch probe) instead of "last push" and does not false-fire on quiet-but-healthy vaults`
 
-5. Self-check: re-run the `<verification>` block and walk each requirement against the change before finishing.
+5. In `specs/in-progress/002-push-sync-health-metrics.md`, update Desired Behavior #2 from "When a watch cycle completes a successful sync (push to remote succeeded), git-ai-sync additionally pushes ..." to "When a watch cycle completes successfully — including idle no-change cycles — git-ai-sync additionally pushes ..." (line ~66). Do not touch Acceptance Criterion #2 — its "only after a successful sync" wording already reads consistently with the broader semantics.
+6. Self-check: re-run the `<verification>` block and walk each requirement against the change before finishing.
 </requirements>
 
 <constraints>
