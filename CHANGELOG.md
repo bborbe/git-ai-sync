@@ -8,7 +8,7 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 * MINOR version when you add functionality in a backwards-compatible manner, and
 * PATCH version when you make backwards-compatible bug fixes.
 
-## Unreleased
+## v0.10.0
 
 - feat: Classify pre-commit-hook refusals in `git_operations` — add `MarkerRefusalError`, `is_marker_refusal()`, and `get_marker_flagged_files()` so commits refused over conflict-marker content are distinguishable from ordinary commit failures (recovery wiring lands in a later prompt)
 - feat: Add marker-aware commit recovery to `conflict_resolver` — `resolve_marker_flagged_files()` resolves and re-stages files flagged by the pre-commit hook (stopping early on failure), and `commit_with_marker_recovery()` retries a refused commit with bounded recovery (max 3 attempts; non-marker failures propagate unchanged) so auto-sync recovers from marker refusals instead of wedging
