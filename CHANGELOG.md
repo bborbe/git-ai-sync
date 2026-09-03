@@ -8,7 +8,7 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 * MINOR version when you add functionality in a backwards-compatible manner, and
 * PATCH version when you make backwards-compatible bug fixes.
 
-## Unreleased
+## v0.9.2
 
 - fix: git-ai-sync pushes the last-success timestamp on every watch cycle that completes without error, including idle no-change cycles, so the sync-stall alert measures "last healthy cycle" (matching the /watch probe) instead of "last push" and does not false-fire on quiet-but-healthy vaults
 
