@@ -1,5 +1,12 @@
 ---
-status: draft
+status: completed
+summary: Added a tolerant message-parser wrapper to git-ai-sync's conflict resolver so the SDK's informational rate_limit_event (and any unrecognized stream message type) is skipped instead of aborting resolution, with regression tests, doctor wiring, and a CHANGELOG entry
+execution_id: git-ai-sync-rate-limit-exec-010-fix-rate-limit-event-parse
+dark-factory-version: dev
+created: "2026-09-03T14:05:56Z"
+queued: "2026-09-03T14:05:56Z"
+started: "2026-09-03T14:06:15Z"
+completed: "2026-09-03T14:09:44Z"
 ---
 
 <summary>

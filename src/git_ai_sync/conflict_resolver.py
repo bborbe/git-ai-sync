@@ -3,6 +3,7 @@
 import logging
 import re
 from pathlib import Path
+from typing import Any
 
 from claude_code_sdk import (
     AssistantMessage,
@@ -11,10 +12,63 @@ from claude_code_sdk import (
     ClaudeSDKError,
     TextBlock,
 )
+from claude_code_sdk._errors import MessageParseError
+from claude_code_sdk._internal import message_parser as _message_parser
 
 from git_ai_sync import git_operations
 
 logger = logging.getLogger(__name__)
+
+# Top-level message types that claude-code-sdk 0.0.25's parse_message knows how
+# to parse. Any other type (e.g. the CLI's informational rate_limit_event)
+# raises MessageParseError("Unknown message type: ..."), which the resolver's
+# except ClaudeSDKError would turn into ConflictError and abort resolution.
+_SDK_HANDLED_MESSAGE_TYPES = frozenset(("user", "assistant", "system", "result", "stream_event"))
+
+# Reference to the SDK's original parser, captured before the tolerance wrapper
+# is installed so it can delegate without recursing into itself.
+_original_parse_message = _message_parser.parse_message
+
+
+def _parse_message_tolerant(data: dict[str, Any]) -> object | None:
+    """Parse a raw CLI stream message, skipping unrecognized message types.
+
+    The Claude Code CLI emits informational stream messages (e.g.
+    rate_limit_event) at session start that claude-code-sdk 0.0.25's
+    parse_message does not recognize; it raises MessageParseError, which the
+    resolver's except ClaudeSDKError converts to ConflictError and aborts
+    resolution. Returning None for those lets the resolver's receive loop
+    (which only acts on AssistantMessage) skip them. Genuine parse errors for
+    handled message types (missing fields, malformed payloads) still
+    propagate.
+
+    Args:
+        data: Raw message dictionary from the CLI output stream
+
+    Returns:
+        Parsed Message, or None when the top-level type is unrecognized
+    """
+    try:
+        return _original_parse_message(data)
+    except MessageParseError:
+        if data.get("type") not in _SDK_HANDLED_MESSAGE_TYPES:
+            return None
+        raise
+
+
+def _install_message_parser_tolerance() -> None:
+    """Install the tolerant parser on claude_code_sdk's message parser.
+
+    Idempotent: repeated calls (e.g. re-imports) do not double-wrap. The SDK's
+    ClaudeSDKClient.receive_messages resolves parse_message at each call, so
+    the attribute swap is picked up on the next receive.
+    """
+    if _message_parser.parse_message is _parse_message_tolerant:
+        return
+    _message_parser.parse_message = _parse_message_tolerant  # type: ignore[assignment]
+
+
+_install_message_parser_tolerance()
 
 
 class ConflictError(Exception):
