@@ -8,12 +8,14 @@ from claude_code_sdk import ClaudeSDKError
 
 from git_ai_sync.conflict_resolver import (
     ConflictError,
+    commit_with_marker_recovery,
     do_continue_rebase,
     parse_conflict_markers,
     resolve_all_conflicts,
     resolve_conflict_with_claude,
+    resolve_marker_flagged_files,
 )
-from git_ai_sync.git_operations import GitError
+from git_ai_sync.git_operations import GitError, MarkerRefusalError
 
 CONFLICT_CONTENT = """\
 some text before
@@ -238,3 +240,155 @@ class TestDoContinueRebase:
             pytest.raises(ConflictError, match="Failed to continue"),
         ):
             do_continue_rebase(temp_dir)
+
+
+def _marker_git_ops() -> MagicMock:
+    """Create a mock git_operations with real GitError and MarkerRefusalError."""
+    mock = MagicMock()
+    mock.GitError = GitError
+    mock.MarkerRefusalError = MarkerRefusalError
+    return mock
+
+
+async def test_resolve_marker_flagged_files(temp_dir: Path) -> None:
+    conflict_file = temp_dir / "file.md"
+    conflict_file.write_text(CONFLICT_CONTENT)
+
+    mock_git = _marker_git_ops()
+    with (
+        patch("git_ai_sync.conflict_resolver.git_operations", mock_git),
+        patch(
+            "git_ai_sync.conflict_resolver.resolve_conflict_with_claude",
+            new_callable=AsyncMock,
+            return_value="resolved",
+        ),
+    ):
+        await resolve_marker_flagged_files(temp_dir, ["file.md"])
+        assert conflict_file.read_text(encoding="utf-8") == "resolved"
+        mock_git.stage_file.assert_called_once_with(temp_dir, "file.md")
+
+
+async def test_resolve_marker_flagged_files_multiple(temp_dir: Path) -> None:
+    conflict_a = temp_dir / "a.md"
+    conflict_a.write_text(CONFLICT_CONTENT)
+    conflict_b = temp_dir / "b.md"
+    conflict_b.write_text(CONFLICT_CONTENT)
+
+    mock_git = _marker_git_ops()
+    with (
+        patch("git_ai_sync.conflict_resolver.git_operations", mock_git),
+        patch(
+            "git_ai_sync.conflict_resolver.resolve_conflict_with_claude",
+            new_callable=AsyncMock,
+            side_effect=["resolved-a", "resolved-b"],
+        ),
+    ):
+        await resolve_marker_flagged_files(temp_dir, ["a.md", "b.md"])
+        assert conflict_a.read_text(encoding="utf-8") == "resolved-a"
+        assert conflict_b.read_text(encoding="utf-8") == "resolved-b"
+        assert mock_git.stage_file.call_count == 2
+
+
+async def test_resolve_marker_flagged_files_stops_on_failure(temp_dir: Path) -> None:
+    conflict_file = temp_dir / "file.md"
+    conflict_file.write_text(CONFLICT_CONTENT)
+
+    mock_git = _marker_git_ops()
+    with (
+        patch("git_ai_sync.conflict_resolver.git_operations", mock_git),
+        patch(
+            "git_ai_sync.conflict_resolver.resolve_conflict_with_claude",
+            new_callable=AsyncMock,
+            side_effect=ConflictError("Claude API call failed"),
+        ),
+        pytest.raises(ConflictError, match=r"file\.md"),
+    ):
+        await resolve_marker_flagged_files(temp_dir, ["file.md"])
+
+    mock_git.stage_file.assert_not_called()
+
+
+async def test_commit_with_marker_recovery_success(temp_dir: Path) -> None:
+    mock_git = _marker_git_ops()
+    mock_git.commit.side_effect = [MarkerRefusalError("refused"), None]
+    mock_git.get_marker_flagged_files.return_value = ["file.md"]
+    with (
+        patch("git_ai_sync.conflict_resolver.git_operations", mock_git),
+        patch(
+            "git_ai_sync.conflict_resolver.resolve_marker_flagged_files",
+            new_callable=AsyncMock,
+        ) as mock_resolver,
+    ):
+        await commit_with_marker_recovery(temp_dir, "msg")
+        assert mock_git.commit.call_count == 2
+        mock_resolver.assert_awaited_once()
+        args = mock_resolver.await_args.args
+        assert args[0] == temp_dir
+        assert args[1] == ["file.md"]
+
+
+async def test_commit_with_marker_recovery_bounded(temp_dir: Path) -> None:
+    mock_git = _marker_git_ops()
+    mock_git.commit.side_effect = MarkerRefusalError("refused")
+    mock_git.get_marker_flagged_files.return_value = ["file.md"]
+    with (
+        patch("git_ai_sync.conflict_resolver.git_operations", mock_git),
+        patch(
+            "git_ai_sync.conflict_resolver.resolve_marker_flagged_files",
+            new_callable=AsyncMock,
+        ),
+        pytest.raises(MarkerRefusalError) as exc_info,
+    ):
+        await commit_with_marker_recovery(temp_dir, "msg")
+
+    assert mock_git.commit.call_count == 3
+    assert "Run 'git-ai-sync resolve" in str(exc_info.value)
+
+
+async def test_commit_with_marker_recovery_early_stop(temp_dir: Path) -> None:
+    mock_git = _marker_git_ops()
+    mock_git.commit.side_effect = MarkerRefusalError("refused")
+    mock_git.get_marker_flagged_files.return_value = ["file.md"]
+    with (
+        patch("git_ai_sync.conflict_resolver.git_operations", mock_git),
+        patch(
+            "git_ai_sync.conflict_resolver.resolve_marker_flagged_files",
+            new_callable=AsyncMock,
+            side_effect=ConflictError(
+                "Failed to resolve marker-flagged file file.md: Claude API call failed"
+            ),
+        ),
+        pytest.raises(MarkerRefusalError, match=r"file\.md"),
+    ):
+        await commit_with_marker_recovery(temp_dir, "msg")
+
+    assert mock_git.commit.call_count == 1
+
+
+async def test_commit_with_marker_recovery_non_marker_error(temp_dir: Path) -> None:
+    mock_git = _marker_git_ops()
+    mock_git.commit.side_effect = GitError("Failed to commit: index.lock exists")
+    with (
+        patch("git_ai_sync.conflict_resolver.git_operations", mock_git),
+        pytest.raises(GitError, match=r"index\.lock"),
+    ):
+        await commit_with_marker_recovery(temp_dir, "msg")
+
+    mock_git.get_marker_flagged_files.assert_not_called()
+
+
+async def test_commit_with_marker_recovery_no_flagged_files(temp_dir: Path) -> None:
+    mock_git = _marker_git_ops()
+    mock_git.commit.side_effect = MarkerRefusalError("refused")
+    mock_git.get_marker_flagged_files.return_value = []
+    with (
+        patch("git_ai_sync.conflict_resolver.git_operations", mock_git),
+        patch(
+            "git_ai_sync.conflict_resolver.resolve_marker_flagged_files",
+            new_callable=AsyncMock,
+        ) as mock_resolver,
+        pytest.raises(MarkerRefusalError),
+    ):
+        await commit_with_marker_recovery(temp_dir, "msg")
+
+    mock_resolver.assert_not_awaited()

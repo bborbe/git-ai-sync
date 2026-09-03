@@ -205,6 +205,85 @@ async def resolve_all_conflicts(
     return resolved_count, failed_files
 
 
+async def resolve_marker_flagged_files(
+    repo_path: Path,
+    flagged_files: list[str],
+    model: str = "claude-sonnet-4-5-20250929",
+) -> None:
+    """Resolve conflict markers in files flagged by the pre-commit hook and re-stage them.
+
+    Args:
+        repo_path: Path to git repository
+        flagged_files: Files flagged by the pre-commit hook for conflict markers
+        model: Claude model to use
+
+    Raises:
+        ConflictError: If resolution or staging fails on any file (stops early)
+    """
+    for file_path in flagged_files:
+        full_path = repo_path / file_path
+        try:
+            content = full_path.read_text(encoding="utf-8")
+            resolved_content = await resolve_conflict_with_claude(file_path, content, model)
+            full_path.write_text(resolved_content, encoding="utf-8")
+            git_operations.stage_file(repo_path, file_path)
+            logger.info(f"Resolved and staged {file_path}")
+        except (git_operations.GitError, ConflictError) as e:
+            raise ConflictError(f"Failed to resolve marker-flagged file {file_path}: {e}") from e
+
+
+async def commit_with_marker_recovery(
+    repo_path: Path,
+    message: str,
+    model: str = "claude-sonnet-4-5-20250929",
+) -> None:
+    """Commit with bounded auto-recovery when the pre-commit hook refuses the
+    commit over conflict-marker content.
+
+    Args:
+        repo_path: Path to git repository
+        message: Commit message
+        model: Claude model to use
+
+    Raises:
+        MarkerRefusalError: If the commit is still refused after the bounded
+            recovery rounds (the final error names still-flagged files)
+        GitError: Non-marker commit failures, propagated unchanged
+    """
+    max_attempts = 3
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            git_operations.commit(repo_path, message)
+            return
+        except git_operations.MarkerRefusalError:
+            if attempt >= max_attempts:
+                break
+            flagged_files = git_operations.get_marker_flagged_files(repo_path)
+            if not flagged_files:
+                break
+            logger.info(
+                f"Marker refusal detected; resolving {len(flagged_files)} flagged "
+                f"file(s): {', '.join(flagged_files)}"
+            )
+            try:
+                await resolve_marker_flagged_files(repo_path, flagged_files, model)
+            except ConflictError as e:
+                raise git_operations.MarkerRefusalError(
+                    f"Failed to resolve marker-flagged files: {e}. "
+                    "Run 'git-ai-sync resolve <path>' to resolve"
+                ) from e
+            logger.info("Recovery round complete; retrying commit")
+
+    still_flagged = git_operations.get_marker_flagged_files(repo_path)
+    raise git_operations.MarkerRefusalError(
+        f"Commit refused by pre-commit hook after {max_attempts} attempts; "
+        f"still-flagged files: {', '.join(still_flagged) or 'none'}. "
+        "Run 'git-ai-sync resolve <path>' to resolve"
+    )
+
+
 def do_continue_rebase(repo_path: Path) -> None:
     """Continue conflict resolution (rebase or merge).
 
