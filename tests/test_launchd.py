@@ -190,7 +190,12 @@ class TestSetupLaunchd:
         decoded = plistlib.loads(plist_path.read_bytes())
         assert decoded["Label"] == "com.github.bborbe.git-ai-sync-vault"
         assert calls[0] == ["launchctl", "bootstrap", f"gui/{os.getuid()}", str(plist_path)]
-        assert calls[1] == ["launchctl", "kickstart", "-k", f"gui/{os.getuid()}/vault"]
+        assert calls[1] == [
+            "launchctl",
+            "kickstart",
+            "-k",
+            f"gui/{os.getuid()}/com.github.bborbe.git-ai-sync-vault",
+        ]
         assert len(calls) == 2
 
     def test_already_loaded_tolerated(
@@ -205,8 +210,17 @@ class TestSetupLaunchd:
 
         setup_launchd(vault_dir)  # no exception
 
-        assert calls[1] == ["launchctl", "print", f"gui/{os.getuid()}/vault"]
-        assert calls[2] == ["launchctl", "kickstart", "-k", f"gui/{os.getuid()}/vault"]
+        assert calls[1] == [
+            "launchctl",
+            "print",
+            f"gui/{os.getuid()}/com.github.bborbe.git-ai-sync-vault",
+        ]
+        assert calls[2] == [
+            "launchctl",
+            "kickstart",
+            "-k",
+            f"gui/{os.getuid()}/com.github.bborbe.git-ai-sync-vault",
+        ]
 
     def test_hard_launchd_failure(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         vault_dir = tmp_path / "vault"
@@ -222,7 +236,10 @@ class TestSetupLaunchd:
         message = str(exc_info.value)
         plist_path = home / "Library" / "LaunchAgents" / "com.github.bborbe.git-ai-sync-vault.plist"
         assert f"launchctl bootstrap gui/{os.getuid()} {plist_path}" in message
-        assert f"launchctl kickstart -k gui/{os.getuid()}/vault" in message
+        assert (
+            f"launchctl kickstart -k gui/{os.getuid()}/com.github.bborbe.git-ai-sync-vault"
+            in message
+        )
 
     def test_missing_dir_validated_first(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -317,7 +334,9 @@ class TestRemoveLaunchd:
 
         remove_launchd(tmp_path / "vault")
 
-        assert calls == [["launchctl", "bootout", f"gui/{os.getuid()}", "vault"]]
+        assert calls == [
+            ["launchctl", "bootout", f"gui/{os.getuid()}", "com.github.bborbe.git-ai-sync-vault"]
+        ]
         assert not plist_path.exists()
 
     def test_bootout_nonzero_best_effort(
@@ -330,7 +349,9 @@ class TestRemoveLaunchd:
 
         remove_launchd(tmp_path / "vault")  # no exception
 
-        assert calls == [["launchctl", "bootout", f"gui/{os.getuid()}", "vault"]]
+        assert calls == [
+            ["launchctl", "bootout", f"gui/{os.getuid()}", "com.github.bborbe.git-ai-sync-vault"]
+        ]
         assert not (home / "Library" / "LaunchAgents").exists()
 
     def test_never_setup_no_exception(
@@ -343,7 +364,9 @@ class TestRemoveLaunchd:
 
         remove_launchd(tmp_path / "vault")  # no exception
 
-        assert calls == [["launchctl", "bootout", f"gui/{os.getuid()}", "vault"]]
+        assert calls == [
+            ["launchctl", "bootout", f"gui/{os.getuid()}", "com.github.bborbe.git-ai-sync-vault"]
+        ]
 
     def test_plist_delete_failure_names_step(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -359,4 +382,6 @@ class TestRemoveLaunchd:
             remove_launchd(tmp_path / "vault")
 
         assert "plist delete" in str(exc_info.value)
-        assert calls == [["launchctl", "bootout", f"gui/{os.getuid()}", "vault"]]
+        assert calls == [
+            ["launchctl", "bootout", f"gui/{os.getuid()}", "com.github.bborbe.git-ai-sync-vault"]
+        ]

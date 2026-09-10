@@ -131,7 +131,7 @@ In contexts where the launchd GUI domain cannot be managed (for example an SSH s
 
 ```bash
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.github.bborbe.git-ai-sync-<label>.plist
-launchctl kickstart -k gui/$(id -u)/<label>
+launchctl kickstart -k gui/$(id -u)/com.github.bborbe.git-ai-sync-<label>
 ```
 
 A plist left on disk by a failed setup is inert; `git-ai-sync remove-launchd <vault-dir>` cleans it up.

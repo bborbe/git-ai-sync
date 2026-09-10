@@ -198,7 +198,11 @@ def setup_launchd(vault_dir: Path) -> None:
     if bootstrap.returncode != 0:
         try:
             probe = subprocess.run(
-                ["launchctl", "print", f"{gui_domain}/{label}"],
+                [
+                    "launchctl",
+                    "print",
+                    f"{gui_domain}/com.github.bborbe.git-ai-sync-{label}",
+                ],
                 check=False,
                 capture_output=True,
                 text=True,
@@ -212,13 +216,18 @@ def setup_launchd(vault_dir: Path) -> None:
                 f"{bootstrap.stderr.strip()}\n"
                 "Run manually:\n"
                 f"  launchctl bootstrap {gui_domain} {plist_path}\n"
-                f"  launchctl kickstart -k {gui_domain}/{label}"
+                f"  launchctl kickstart -k {gui_domain}/com.github.bborbe.git-ai-sync-{label}"
             )
-        logger.info(f"Agent already loaded: {gui_domain}/{label}")
+        logger.info(f"Agent already loaded: {gui_domain}/com.github.bborbe.git-ai-sync-{label}")
 
     try:
         kickstart = subprocess.run(
-            ["launchctl", "kickstart", "-k", f"{gui_domain}/{label}"],
+            [
+                "launchctl",
+                "kickstart",
+                "-k",
+                f"{gui_domain}/com.github.bborbe.git-ai-sync-{label}",
+            ],
             check=False,
             capture_output=True,
             text=True,
@@ -229,10 +238,11 @@ def setup_launchd(vault_dir: Path) -> None:
 
     if kickstart.returncode != 0:
         raise LaunchdError(
-            f"launchctl kickstart failed for {gui_domain}/{label}: {kickstart.stderr.strip()}"
+            f"launchctl kickstart failed for {gui_domain}/com.github.bborbe.git-ai-sync-{label}:"
+            f" {kickstart.stderr.strip()}"
         )
 
-    logger.info(f"Registered launchd agent: {gui_domain}/{label}")
+    logger.info(f"Registered launchd agent: {gui_domain}/com.github.bborbe.git-ai-sync-{label}")
 
 
 def remove_launchd(vault_dir: Path) -> None:
@@ -253,7 +263,7 @@ def remove_launchd(vault_dir: Path) -> None:
     gui_domain = f"gui/{os.getuid()}"
     try:
         result = subprocess.run(
-            ["launchctl", "bootout", gui_domain, label],
+            ["launchctl", "bootout", gui_domain, f"com.github.bborbe.git-ai-sync-{label}"],
             check=False,
             capture_output=True,
             text=True,
