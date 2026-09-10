@@ -8,7 +8,7 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 * MINOR version when you add functionality in a backwards-compatible manner, and
 * PATCH version when you make backwards-compatible bug fixes.
 
-## Unreleased
+## v0.11.1
 
 - fix: `setup-launchd`/`remove-launchd` address launchd services by their full label (`com.github.bborbe.git-ai-sync-<label>`) in the already-loaded print probe, kickstart, bootout, and the printed manual fallback commands — the short label form fails on real launchd (`Could not find service`), which made fresh setup exit 1 and the cask postflight's registration fail silently
 
