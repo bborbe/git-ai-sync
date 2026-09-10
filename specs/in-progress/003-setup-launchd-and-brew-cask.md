@@ -1,8 +1,9 @@
 ---
-status: prompted
+status: verifying
 approved: "2026-09-10T15:31:34Z"
 generating: "2026-09-10T15:37:26Z"
 prompted: "2026-09-10T15:37:26Z"
+verifying: "2026-09-10T17:06:32Z"
 branch: dark-factory/setup-launchd-and-brew-cask
 ---
 
