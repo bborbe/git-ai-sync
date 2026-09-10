@@ -31,8 +31,22 @@ if os.environ.get("FAKE_LAUNCHCTL_FAIL_BOOTSTRAP") and command == "bootstrap":
     sys.exit(1)
 if os.environ.get("FAKE_LAUNCHCTL_FAIL_PRINT") and command == "print":
     sys.exit(1)
+# Real launchd addresses services by their full label: a print/kickstart/bootout
+# target that is not a full label fails with "Could not find service".
+if (
+    command in ("print", "kickstart", "bootout")
+    and "com.github.bborbe.git-ai-sync-" not in sys.argv[-1]
+):
+    sys.stderr.write(
+        'Bad request. Could not find service "%s" in domain for user gui: %s\n'
+        % (sys.argv[-1], os.getuid())
+    )
+    sys.exit(1)
 sys.exit(0)
 """
+
+
+_SHORT_LABEL = "personal"  # deliberately NOT the full label — the contract test probes it
 
 
 class FakeLaunchctl(NamedTuple):
@@ -113,7 +127,7 @@ def test_setup_writes_plist_and_bootstraps(scratch: Path, fake_launchctl: FakeLa
     lines = fake_launchctl.log.read_text().splitlines()
     assert lines == [
         f"bootstrap gui/{os.getuid()} {plist_path}",
-        f"kickstart -k gui/{os.getuid()}/personal",
+        f"kickstart -k gui/{os.getuid()}/com.github.bborbe.git-ai-sync-personal",
     ]
 
 
@@ -133,7 +147,7 @@ def test_setup_spaced_dir_derives_label_at_cli_layer(
     assert proc.returncode == 0, proc.stderr
     assert _plist_path(scratch, "path-with-spaces").exists()
     lines = fake_launchctl.log.read_text().splitlines()
-    assert f"kickstart -k gui/{os.getuid()}/path-with-spaces" in lines
+    assert f"kickstart -k gui/{os.getuid()}/com.github.bborbe.git-ai-sync-path-with-spaces" in lines
 
 
 def test_setup_rerun_is_identical_and_exits_0(scratch: Path, fake_launchctl: FakeLaunchctl) -> None:
@@ -175,8 +189,8 @@ def test_setup_tolerates_already_loaded_job(scratch: Path, fake_launchctl: FakeL
     assert proc.returncode == 0, proc.stderr
     assert _plist_path(scratch, "personal").exists()
     lines = fake_launchctl.log.read_text().splitlines()
-    assert f"print gui/{os.getuid()}/personal" in lines
-    assert f"kickstart -k gui/{os.getuid()}/personal" in lines
+    assert f"print gui/{os.getuid()}/com.github.bborbe.git-ai-sync-personal" in lines
+    assert f"kickstart -k gui/{os.getuid()}/com.github.bborbe.git-ai-sync-personal" in lines
 
 
 def test_setup_hard_launchd_failure_names_manual_commands(
@@ -238,7 +252,19 @@ def test_remove_deletes_plist_and_bootouts(scratch: Path, fake_launchctl: FakeLa
     assert remove.returncode == 0, remove.stderr
     assert not plist_path.exists()
     lines = fake_launchctl.log.read_text().splitlines()
-    assert lines[-1] == f"bootout gui/{os.getuid()} personal"
+    assert lines[-1] == f"bootout gui/{os.getuid()} com.github.bborbe.git-ai-sync-personal"
+
+
+def test_fake_launchctl_rejects_short_label(fake_launchctl: FakeLaunchctl) -> None:
+    """The fake shim fails a short-label target exactly like real launchd."""
+    proc = subprocess.run(
+        [str(fake_launchctl.shim / "launchctl"), "print", f"gui/{os.getuid()}/{_SHORT_LABEL}"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode != 0
+    assert "Could not find service" in proc.stderr
 
 
 def test_remove_never_setup_exits_0(scratch: Path, fake_launchctl: FakeLaunchctl) -> None:
