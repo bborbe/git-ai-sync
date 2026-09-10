@@ -8,7 +8,7 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 * MINOR version when you add functionality in a backwards-compatible manner, and
 * PATCH version when you make backwards-compatible bug fixes.
 
-## Unreleased
+## v0.11.0
 
 - feat: Add idempotent `git-ai-sync setup-launchd <vault-dir>` and `git-ai-sync remove-launchd <vault-dir>` subcommands that generate and tear down per-vault launchd agents reproducing the frozen live-plist shape (label derived from the last path component, pushgateway env vars passed through only when set, byte-identical re-runs, tolerant of already-loaded jobs)
 - test: Add end-to-end tests for `setup-launchd`/`remove-launchd` — a scripted fake `launchctl` shimmed onto PATH and a scratch HOME drive the real CLI through plist write, bootstrap/print/kickstart/bootout argv, idempotence, already-loaded tolerance, and hard-failure exit codes
