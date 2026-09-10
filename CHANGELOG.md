@@ -8,6 +8,10 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 * MINOR version when you add functionality in a backwards-compatible manner, and
 * PATCH version when you make backwards-compatible bug fixes.
 
+## Unreleased
+
+- fix: `remove-launchd` bootouts the agent with the single service-target form `launchctl bootout gui/<uid>/com.github.bborbe.git-ai-sync-<label>` instead of the separate-domain two-arg form (`bootout gui/<uid> <label>`), which real launchd rejects with `Boot-out failed: 5: Input/output error` and left the agent running after a successful-looking remove
+
 ## v0.11.1
 
 - fix: `setup-launchd`/`remove-launchd` address launchd services by their full label (`com.github.bborbe.git-ai-sync-<label>`) in the already-loaded print probe, kickstart, bootout, and the printed manual fallback commands — the short label form fails on real launchd (`Could not find service`), which made fresh setup exit 1 and the cask postflight's registration fail silently

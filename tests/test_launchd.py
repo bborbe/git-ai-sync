@@ -335,7 +335,7 @@ class TestRemoveLaunchd:
         remove_launchd(tmp_path / "vault")
 
         assert calls == [
-            ["launchctl", "bootout", f"gui/{os.getuid()}", "com.github.bborbe.git-ai-sync-vault"]
+            ["launchctl", "bootout", f"gui/{os.getuid()}/com.github.bborbe.git-ai-sync-vault"]
         ]
         assert not plist_path.exists()
 
@@ -350,7 +350,7 @@ class TestRemoveLaunchd:
         remove_launchd(tmp_path / "vault")  # no exception
 
         assert calls == [
-            ["launchctl", "bootout", f"gui/{os.getuid()}", "com.github.bborbe.git-ai-sync-vault"]
+            ["launchctl", "bootout", f"gui/{os.getuid()}/com.github.bborbe.git-ai-sync-vault"]
         ]
         assert not (home / "Library" / "LaunchAgents").exists()
 
@@ -365,7 +365,7 @@ class TestRemoveLaunchd:
         remove_launchd(tmp_path / "vault")  # no exception
 
         assert calls == [
-            ["launchctl", "bootout", f"gui/{os.getuid()}", "com.github.bborbe.git-ai-sync-vault"]
+            ["launchctl", "bootout", f"gui/{os.getuid()}/com.github.bborbe.git-ai-sync-vault"]
         ]
 
     def test_plist_delete_failure_names_step(
@@ -383,5 +383,5 @@ class TestRemoveLaunchd:
 
         assert "plist delete" in str(exc_info.value)
         assert calls == [
-            ["launchctl", "bootout", f"gui/{os.getuid()}", "com.github.bborbe.git-ai-sync-vault"]
+            ["launchctl", "bootout", f"gui/{os.getuid()}/com.github.bborbe.git-ai-sync-vault"]
         ]

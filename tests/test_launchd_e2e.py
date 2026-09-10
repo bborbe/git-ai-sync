@@ -42,6 +42,13 @@ if (
         % (sys.argv[-1], os.getuid())
     )
     sys.exit(1)
+# Real launchd on current macOS rejects the separate-domain two-arg bootout
+# form ("launchctl bootout gui/<uid> <label>") with an I/O error; only the
+# single service-target form ("launchctl bootout gui/<uid>/<label>") unloads
+# a gui-domain user agent.
+if command == "bootout" and len(sys.argv) == 4:
+    sys.stderr.write("Boot-out failed: 5: Input/output error\n")
+    sys.exit(1)
 sys.exit(0)
 """
 
@@ -252,7 +259,7 @@ def test_remove_deletes_plist_and_bootouts(scratch: Path, fake_launchctl: FakeLa
     assert remove.returncode == 0, remove.stderr
     assert not plist_path.exists()
     lines = fake_launchctl.log.read_text().splitlines()
-    assert lines[-1] == f"bootout gui/{os.getuid()} com.github.bborbe.git-ai-sync-personal"
+    assert lines[-1] == f"bootout gui/{os.getuid()}/com.github.bborbe.git-ai-sync-personal"
 
 
 def test_fake_launchctl_rejects_short_label(fake_launchctl: FakeLaunchctl) -> None:
@@ -265,6 +272,23 @@ def test_fake_launchctl_rejects_short_label(fake_launchctl: FakeLaunchctl) -> No
     )
     assert proc.returncode != 0
     assert "Could not find service" in proc.stderr
+
+
+def test_fake_launchctl_rejects_two_arg_bootout(fake_launchctl: FakeLaunchctl) -> None:
+    """The fake shim fails the separate-domain two-arg bootout form like real launchd."""
+    proc = subprocess.run(
+        [
+            str(fake_launchctl.shim / "launchctl"),
+            "bootout",
+            f"gui/{os.getuid()}",
+            "com.github.bborbe.git-ai-sync-personal",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode != 0
+    assert "Input/output error" in proc.stderr
 
 
 def test_remove_never_setup_exits_0(scratch: Path, fake_launchctl: FakeLaunchctl) -> None:
