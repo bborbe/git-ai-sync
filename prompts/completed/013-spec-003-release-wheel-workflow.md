@@ -1,8 +1,13 @@
 ---
-status: approved
+status: completed
 spec: [003-setup-launchd-and-brew-cask]
+summary: 'Added a tag-triggered release-wheel GitHub Actions workflow (uv build --wheel with fetch-depth: 0, gh release create-or-upload with --clobber) and a feat: CHANGELOG bullet under ## Unreleased'
+execution_id: git-ai-sync-exec-013-spec-003-release-wheel-workflow
+dark-factory-version: dev
 created: "2026-09-10T15:33:07Z"
 queued: "2026-09-10T16:55:56Z"
+started: "2026-09-10T17:04:56Z"
+completed: "2026-09-10T17:05:16Z"
 ---
 
 # Tag-triggered release-wheel workflow
