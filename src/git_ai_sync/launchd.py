@@ -261,9 +261,13 @@ def remove_launchd(vault_dir: Path) -> None:
     """
     label = derive_label(vault_dir)
     gui_domain = f"gui/{os.getuid()}"
+    # launchd rejects the separate-domain two-arg bootout form ("bootout
+    # gui/<uid> <label>") with "Boot-out failed: 5: Input/output error"; the
+    # single service-target form is the only one that unloads a gui-domain
+    # user agent.
     try:
         result = subprocess.run(
-            ["launchctl", "bootout", gui_domain, f"com.github.bborbe.git-ai-sync-{label}"],
+            ["launchctl", "bootout", f"{gui_domain}/com.github.bborbe.git-ai-sync-{label}"],
             check=False,
             capture_output=True,
             text=True,
