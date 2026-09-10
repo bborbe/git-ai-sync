@@ -76,8 +76,14 @@ systemctl --user enable --now git-ai-sync-vault.service
 Quick example (launchd):
 
 ```bash
-launchctl load ~/Library/LaunchAgents/com.github.bborbe.git-ai-sync-obsidian.plist
+# Install a per-vault launch agent (writes the plist, registers, starts the watcher)
+git-ai-sync setup-launchd ~/Documents/Obsidian/Personal
+
+# Tear it down again
+git-ai-sync remove-launchd ~/Documents/Obsidian/Personal
 ```
+
+See [`docs/launchd-service.md`](docs/launchd-service.md) for the full guide and the plist shape `setup-launchd` produces.
 
 ## How It Works
 

@@ -1,8 +1,13 @@
 ---
-status: approved
+status: completed
 spec: [003-setup-launchd-and-brew-cask]
+summary: 'Rewrote docs/launchd-service.md to document the setup-launchd/remove-launchd subcommand flow (label derivation, frozen plist shape, idempotence, verification, sandboxed fallback) replacing the hand-written plist ritual, updated README''s Run in the Background section to the one-command flow, and added the docs: bullet to CHANGELOG Unreleased'
+execution_id: git-ai-sync-exec-014-spec-003-launchd-docs
+dark-factory-version: dev
 created: "2026-09-10T15:33:07Z"
 queued: "2026-09-10T16:55:56Z"
+started: "2026-09-10T17:05:17Z"
+completed: "2026-09-10T17:06:32Z"
 ---
 
 # Document setup-launchd and remove-launchd usage

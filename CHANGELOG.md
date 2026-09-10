@@ -13,6 +13,7 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 - feat: Add idempotent `git-ai-sync setup-launchd <vault-dir>` and `git-ai-sync remove-launchd <vault-dir>` subcommands that generate and tear down per-vault launchd agents reproducing the frozen live-plist shape (label derived from the last path component, pushgateway env vars passed through only when set, byte-identical re-runs, tolerant of already-loaded jobs)
 - test: Add end-to-end tests for `setup-launchd`/`remove-launchd` — a scripted fake `launchctl` shimmed onto PATH and a scratch HOME drive the real CLI through plist write, bootstrap/print/kickstart/bootout argv, idempotence, already-loaded tolerance, and hard-failure exit codes
 - feat: Add a tag-triggered release-wheel workflow that builds the wheel with `uv build --wheel` (full git history for hatch-vcs version derivation) and attaches `git_ai_sync-<ver>-py3-none-any.whl` to the GitHub release, creating the release object when the tag alone exists and refreshing the asset with `--clobber` on a re-run
+- docs: Document the `setup-launchd` / `remove-launchd` subcommands and the plist shape they produce in docs/launchd-service.md, replacing the hand-written plist ritual, and point README's background section at the new flow
 
 ## v0.10.1
 
