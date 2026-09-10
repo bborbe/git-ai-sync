@@ -1,8 +1,13 @@
 ---
-status: approved
+status: completed
 spec: [003-setup-launchd-and-brew-cask]
+summary: Added an 8-test e2e suite (tests/test_launchd_e2e.py) driving the real CLI with a fake launchctl shim and scratch HOME, covering plist write, bootstrap/kickstart/bootout argv, idempotence, already-loaded tolerance, hard-failure exit codes, and missing-dir handling; updated CHANGELOG Unreleased.
+execution_id: git-ai-sync-exec-012-spec-003-setup-launchd-e2e
+dark-factory-version: dev
 created: "2026-09-10T15:33:07Z"
 queued: "2026-09-10T16:55:56Z"
+started: "2026-09-10T17:03:34Z"
+completed: "2026-09-10T17:04:55Z"
 ---
 
 # E2E tests for setup-launchd and remove-launchd with a fake launchctl
