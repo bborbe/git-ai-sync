@@ -1,0 +1,32 @@
+name: Release Wheel
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release-wheel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Install uv
+        run: pip install uv
+      - name: Build wheel
+        run: uv build --wheel
+      - name: Upload wheel to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          wheel_file="dist/git_ai_sync-${GITHUB_REF_NAME#v}-py3-none-any.whl"
+          test -f "$wheel_file"
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes
+          gh release upload "$GITHUB_REF_NAME" "$wheel_file" --clobber

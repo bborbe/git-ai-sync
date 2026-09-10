@@ -94,6 +94,18 @@ def parse_args() -> argparse.Namespace:
     # doctor subcommand
     subparsers.add_parser("doctor", help="Verify Claude Code CLI setup")
 
+    # setup-launchd subcommand
+    setup_launchd_parser = subparsers.add_parser(
+        "setup-launchd", help="Install a launchd agent for a vault directory"
+    )
+    setup_launchd_parser.add_argument("path", help="Vault directory to watch")
+
+    # remove-launchd subcommand
+    remove_launchd_parser = subparsers.add_parser(
+        "remove-launchd", help="Remove the launchd agent for a vault directory"
+    )
+    remove_launchd_parser.add_argument("path", help="Vault directory")
+
     return parser.parse_args()
 
 
@@ -648,6 +660,34 @@ def cmd_version() -> None:
     print(f"git-ai-sync {__version__}")
 
 
+def cmd_setup_launchd(args: argparse.Namespace) -> None:
+    """Install a launchd agent for a vault directory."""
+    from pathlib import Path
+
+    from git_ai_sync.launchd import LaunchdError, setup_launchd
+
+    try:
+        setup_launchd(Path(args.path))
+    except LaunchdError as e:
+        logger.error(str(e))
+        sys.exit(1)
+    logger.info(f"Setup complete for: {args.path}")
+
+
+def cmd_remove_launchd(args: argparse.Namespace) -> None:
+    """Remove the launchd agent for a vault directory."""
+    from pathlib import Path
+
+    from git_ai_sync.launchd import LaunchdError, remove_launchd
+
+    try:
+        remove_launchd(Path(args.path))
+    except LaunchdError as e:
+        logger.error(str(e))
+        sys.exit(1)
+    logger.info(f"Removal complete for: {args.path}")
+
+
 def main() -> None:
     """Main entry point."""
     args = parse_args()
@@ -678,6 +718,10 @@ def main() -> None:
         cmd_version()
     elif args.command == "doctor":
         cmd_doctor()
+    elif args.command == "setup-launchd":
+        cmd_setup_launchd(args)
+    elif args.command == "remove-launchd":
+        cmd_remove_launchd(args)
 
 
 if __name__ == "__main__":

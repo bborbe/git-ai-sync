@@ -84,6 +84,18 @@ class TestParseArgs:
             args = parse_args()
             assert args.strategy == "rebase"
 
+    def test_setup_launchd_defaults(self) -> None:
+        with patch("sys.argv", ["git-ai-sync", "setup-launchd", "/vault"]):
+            args = parse_args()
+            assert args.command == "setup-launchd"
+            assert args.path == "/vault"
+
+    def test_remove_launchd_defaults(self) -> None:
+        with patch("sys.argv", ["git-ai-sync", "remove-launchd", "/vault"]):
+            args = parse_args()
+            assert args.command == "remove-launchd"
+            assert args.path == "/vault"
+
 
 def _sync_args(path: str = ".") -> argparse.Namespace:
     return argparse.Namespace(command="sync", path=path, strategy="merge")
@@ -290,6 +302,24 @@ class TestMainDispatch:
             main()
             mock_cmd.assert_called_once()
 
+    def test_dispatches_setup_launchd(self) -> None:
+        with (
+            patch("sys.argv", ["git-ai-sync", "setup-launchd", "/vault"]),
+            patch("git_ai_sync.__main__.cmd_setup_launchd") as mock_cmd,
+            patch("git_ai_sync.__main__.setup_signal_handlers"),
+        ):
+            main()
+            mock_cmd.assert_called_once()
+
+    def test_dispatches_remove_launchd(self) -> None:
+        with (
+            patch("sys.argv", ["git-ai-sync", "remove-launchd", "/vault"]),
+            patch("git_ai_sync.__main__.cmd_remove_launchd") as mock_cmd,
+            patch("git_ai_sync.__main__.setup_signal_handlers"),
+        ):
+            main()
+            mock_cmd.assert_called_once()
+
     def test_main_wires_log_file_into_configure_logging(self) -> None:
         with (
             patch("sys.argv", ["git-ai-sync", "version"]),
@@ -313,6 +343,54 @@ class TestMainDispatch:
             main()
             mock_configure_logging.assert_called_once()
             assert mock_configure_logging.call_args.args[1] is None
+
+
+class TestCmdLaunchd:
+    def test_cmd_setup_launchd_calls_module(self) -> None:
+        from git_ai_sync.__main__ import cmd_setup_launchd
+
+        args = argparse.Namespace(command="setup-launchd", path="/vault")
+        with patch("git_ai_sync.launchd.setup_launchd") as mock_setup:
+            cmd_setup_launchd(args)
+            mock_setup.assert_called_once_with(Path("/vault"))
+
+    def test_cmd_setup_launchd_exits_on_launchd_error(self) -> None:
+        from git_ai_sync.__main__ import cmd_setup_launchd
+        from git_ai_sync.launchd import LaunchdError
+
+        args = argparse.Namespace(command="setup-launchd", path="/vault")
+        with (
+            patch(
+                "git_ai_sync.launchd.setup_launchd",
+                side_effect=LaunchdError("dir validation failed"),
+            ),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_setup_launchd(args)
+        assert exc_info.value.code == 1
+
+    def test_cmd_remove_launchd_calls_module(self) -> None:
+        from git_ai_sync.__main__ import cmd_remove_launchd
+
+        args = argparse.Namespace(command="remove-launchd", path="/vault")
+        with patch("git_ai_sync.launchd.remove_launchd") as mock_remove:
+            cmd_remove_launchd(args)
+            mock_remove.assert_called_once_with(Path("/vault"))
+
+    def test_cmd_remove_launchd_exits_on_launchd_error(self) -> None:
+        from git_ai_sync.__main__ import cmd_remove_launchd
+        from git_ai_sync.launchd import LaunchdError
+
+        args = argparse.Namespace(command="remove-launchd", path="/vault")
+        with (
+            patch(
+                "git_ai_sync.launchd.remove_launchd",
+                side_effect=LaunchdError("plist delete failed"),
+            ),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_remove_launchd(args)
+        assert exc_info.value.code == 1
 
 
 class TestLockAcquisition:
