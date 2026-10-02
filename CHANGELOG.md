@@ -8,7 +8,7 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 * MINOR version when you add functionality in a backwards-compatible manner, and
 * PATCH version when you make backwards-compatible bug fixes.
 
-## Unreleased
+## v0.12.0
 
 - feat: Ship a `Dockerfile` so `git-ai-sync` runs as a container — a `node:22-slim` base that already carries the Claude Code CLI the conflict resolver drives, with the Python 3.14 tool installed through `uv` into fixed prefixes outside `HOME` so a pod whose `HOME` is an emptyDir still starts with no download. `entrypoint.sh` runs `watch` and, because `watch` exits(1) on a merge conflict instead of resolving it, runs `resolve` and resumes; it also keeps `.git-ai-sync.lock` out of the repository's history via `.git/info/exclude`, since the lock is written to the repo root and `stage_all` is `git add .`
 
