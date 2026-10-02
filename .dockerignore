@@ -1,0 +1,22 @@
+# Excluded from the build context. .git is omitted deliberately: a worktree's
+# .git is a pointer file Docker cannot follow, and hatch-vcs falls back to the
+# version declared in pyproject.toml.
+.git
+.github
+.venv
+__pycache__
+*.py[cod]
+.pytest_cache
+.mypy_cache
+.ruff_cache
+*.egg-info
+dist/
+build/
+tests/
+docs/
+prompts/
+specs/
+Makefile
+CHANGELOG.md
+.dockerignore
+Dockerfile

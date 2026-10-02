@@ -8,6 +8,10 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 * MINOR version when you add functionality in a backwards-compatible manner, and
 * PATCH version when you make backwards-compatible bug fixes.
 
+## Unreleased
+
+- feat: Ship a `Dockerfile` so `git-ai-sync` runs as a container — a `node:22-slim` base that already carries the Claude Code CLI the conflict resolver drives, with the Python 3.14 tool installed through `uv` into fixed prefixes outside `HOME` so a pod whose `HOME` is an emptyDir still starts with no download. `entrypoint.sh` runs `watch` and, because `watch` exits(1) on a merge conflict instead of resolving it, runs `resolve` and resumes; it also keeps `.git-ai-sync.lock` out of the repository's history via `.git/info/exclude`, since the lock is written to the repo root and `stage_all` is `git add .`
+
 ## v0.11.2
 
 - fix: `remove-launchd` bootouts the agent with the single service-target form `launchctl bootout gui/<uid>/com.github.bborbe.git-ai-sync-<label>` instead of the separate-domain two-arg form (`bootout gui/<uid> <label>`), which real launchd rejects with `Boot-out failed: 5: Input/output error` and left the agent running after a successful-looking remove
