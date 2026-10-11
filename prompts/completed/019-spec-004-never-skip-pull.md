@@ -1,8 +1,13 @@
 ---
-status: approved
+status: completed
 spec: [004-bug-unsafe-path-refusal-skips-pull]
+summary: Restructured cmd_watch and cmd_sync so a refused commit never skips the pull, with watch continuing to the next interval and sync exiting non-zero only on unrecoverable refusals
+execution_id: git-ai-sync-exec-019-spec-004-never-skip-pull
+dark-factory-version: v0.196.0
 created: "2026-10-11T14:30:00Z"
 queued: "2026-10-11T12:54:21Z"
+started: "2026-10-11T13:00:35Z"
+completed: "2026-10-11T13:10:54Z"
 ---
 
 <summary>

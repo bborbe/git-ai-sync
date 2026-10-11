@@ -1,6 +1,10 @@
 """Tests for main entry point module."""
 
 import argparse
+import contextlib
+import re
+import subprocess
+from collections.abc import Callable
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -14,7 +18,12 @@ from git_ai_sync.__main__ import (
     main,
     parse_args,
 )
-from git_ai_sync.git_operations import GitError, MarkerRefusalError
+from git_ai_sync.git_operations import (
+    GitError,
+    MarkerRefusalError,
+    UnsafePathRefusalError,
+    sanitize_path,
+)
 
 
 class TestParseArgs:
@@ -106,15 +115,29 @@ def _status_args(path: str = ".") -> argparse.Namespace:
 
 
 def _mock_git_ops() -> MagicMock:
-    """Create mock git_operations with real GitError and MarkerRefusalError."""
+    """Create mock git_operations with real GitError subclasses attached."""
     mock = MagicMock()
     mock.GitError = GitError
     mock.MarkerRefusalError = MarkerRefusalError
+    mock.UnsafePathRefusalError = UnsafePathRefusalError
     return mock
 
 
 # Patch target for late-imported git_operations
 _GIT_OPS = "git_ai_sync.git_operations"
+
+
+@pytest.fixture(autouse=True)
+def _preimport_conflict_resolver() -> None:
+    """Import conflict_resolver before any test patches git_operations.
+
+    conflict_resolver binds ``git_operations`` at import time. If it were first
+    imported while ``_GIT_OPS`` is patched, the mock would stay bound for the
+    rest of the session and later real-repo tests would silently no-op.
+    """
+    import git_ai_sync.conflict_resolver  # noqa: F401  (import is the point)
+
+
 _CONFIG = "git_ai_sync.config.Config"
 _ACQUIRE_LOCK = "git_ai_sync.instance_lock.acquire_lock"
 
@@ -814,6 +837,226 @@ def test_watch_marker_refusal_exits(caplog: pytest.LogCaptureFixture) -> None:
     assert not any("Continuing to watch..." in r.message for r in caplog.records)
     assert any("conflict.md" in r.message for r in caplog.records)
     assert any("Run 'git-ai-sync resolve" in r.message for r in caplog.records)
+
+
+BLOCKED_STDERR = (
+    "\n"
+    "✋ Blocked: staged path is not safe on Windows\n"
+    "\n"
+    '     unsafe?.md  —  contains one of  : ? * " < > |\n'
+    "\n"
+    '   Windows rejects these characters in a path component: : ? * " < > |\n'
+    "   It also rejects a component ending in a dot or a space, and a name\n"
+    "   whose stem is a reserved device: CON PRN AUX NUL COM1-9 LPT1-9.\n"
+)
+
+
+def _build_repo_with_remote(tmp_path: Path) -> Path:
+    """Create a repo whose origin is one commit ahead of the local checkout.
+
+    Seeds a clean commit pushed to origin/master, advances origin by one commit
+    the local checkout lacks, then stages an unsafe path locally.
+    """
+    remote = tmp_path / "remote.git"
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.email", "t@t"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "commit.gpgsign", "false"], cwd=repo, check=True)
+    subprocess.run(
+        ["git", "config", "core.hooksPath", str(tmp_path / "no-hooks")],
+        cwd=repo,
+        check=True,
+    )
+    (repo / "clean.md").write_text("clean", encoding="utf-8")
+    subprocess.run(["git", "add", "clean.md"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "seed"], cwd=repo, check=True)
+    subprocess.run(["git", "branch", "-M", "master"], cwd=repo, check=True)
+    subprocess.run(["git", "remote", "add", "origin", str(remote)], cwd=repo, check=True)
+    subprocess.run(["git", "push", "-q", "-u", "origin", "master"], cwd=repo, check=True)
+
+    # Advance origin by one commit the local checkout does not have.
+    (repo / "remote.md").write_text("remote", encoding="utf-8")
+    subprocess.run(["git", "add", "remote.md"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "remote"], cwd=repo, check=True)
+    subprocess.run(["git", "push", "-q", "origin", "master"], cwd=repo, check=True)
+    subprocess.run(["git", "reset", "-q", "--hard", "HEAD~1"], cwd=repo, check=True)
+
+    # Stage an unsafe path locally.
+    (repo / "unsafe?.md").write_text("content", encoding="utf-8")
+    subprocess.run(["git", "add", "unsafe?.md"], cwd=repo, check=True)
+    return repo
+
+
+def _refusing_commit_run() -> Callable[..., subprocess.CompletedProcess[str]]:
+    """Return a subprocess.run wrapper that refuses the first git commit."""
+    real_run = subprocess.run
+    refused: list[bool] = []
+
+    def fake_run(*args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
+        argv = args[0] if args else kwargs.get("args")
+        if isinstance(argv, list) and argv[:2] == ["git", "commit"] and not refused:
+            refused.append(True)
+            return subprocess.CompletedProcess(
+                args=argv, returncode=1, stdout="", stderr=BLOCKED_STDERR
+            )
+        return real_run(*args, **kwargs)  # type: ignore[arg-type]
+
+    return fake_run
+
+
+def _git_stdout(repo: Path, *argv: str) -> str:
+    """Run a git command in ``repo`` and return its stdout."""
+    return subprocess.run(
+        ["git", *argv],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+
+
+def test_watch_pulls_when_commit_refused_unrecovered(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Watch pulls despite an unrecoverable refusal, then continues watching."""
+    from git_ai_sync.__main__ import cmd_watch
+    from git_ai_sync.file_watcher import ChangeTracker
+
+    args = argparse.Namespace(path=".", interval=30, strategy="merge")
+    mock_git = _mock_git_ops()
+    mock_git.find_git_repo.return_value = Path("/repo")
+    mock_git.get_current_branch.return_value = "master"
+    mock_git.has_changes.return_value = True
+    mock_git.generate_commit_message.return_value = "auto: 2026-01-01"
+    mock_git.is_ahead_of_remote.return_value = False
+    sleep_side_effect: list[object] = [None, KeyboardInterrupt()]
+    with (
+        patch(_GIT_OPS, mock_git),
+        patch(_CONFIG) as mock_config,
+        patch(_ACQUIRE_LOCK),
+        patch.object(ChangeTracker, "start"),
+        patch.object(ChangeTracker, "stop"),
+        patch.object(ChangeTracker, "get_seconds_since_last_change", return_value=999),
+        patch("time.sleep", side_effect=sleep_side_effect),
+        patch(
+            "git_ai_sync.conflict_resolver.commit_with_marker_recovery",
+            new_callable=AsyncMock,
+            side_effect=UnsafePathRefusalError(
+                "Commit refused by pre-commit hook after 3 attempts; "
+                "still-offending paths: unsafe?.md. "
+                "Rename them to Windows-safe names and commit again"
+            ),
+        ),
+        caplog.at_level("INFO"),
+    ):
+        mock_config.return_value.pushgateway_url = None
+        with contextlib.suppress(KeyboardInterrupt):
+            cmd_watch(args)
+
+    mock_git.pull_merge.assert_called_once()
+    mock_git.push.assert_called_once()
+    assert not any(
+        re.match(r"^Sync failed: Failed to commit:\s*$", r.getMessage(), re.MULTILINE)
+        for r in caplog.records
+    )
+    assert any("unsafe?.md" in r.getMessage() for r in caplog.records)
+
+
+def test_sync_pulls_when_commit_refused_recovered(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Sync recovers an unsafe path, still pulls, and exits 0."""
+    repo = _build_repo_with_remote(tmp_path)
+    expected = sanitize_path("unsafe?.md")
+    args = argparse.Namespace(command="sync", path=str(repo), strategy="merge")
+    with (
+        patch("subprocess.run", side_effect=_refusing_commit_run()),
+        patch(_CONFIG) as mock_config,
+        patch(_ACQUIRE_LOCK),
+        caplog.at_level("INFO"),
+    ):
+        mock_config.return_value.pushgateway_url = None
+        cmd_sync(args)
+
+    tree = _git_stdout(repo, "ls-tree", "-r", "HEAD", "--name-only")
+    assert expected in tree
+    assert _git_stdout(repo, "rev-list", "--count", "HEAD..origin/master").strip() == "0"
+    assert any("unsafe?.md" in r.getMessage() for r in caplog.records)
+
+
+def test_watch_continues_after_refusal(caplog: pytest.LogCaptureFixture) -> None:
+    """Watch runs a second cycle after a refusal instead of exiting or tight-looping."""
+    from git_ai_sync.__main__ import cmd_watch
+    from git_ai_sync.file_watcher import ChangeTracker
+
+    args = argparse.Namespace(path=".", interval=30, strategy="merge")
+    mock_git = _mock_git_ops()
+    mock_git.find_git_repo.return_value = Path("/repo")
+    mock_git.get_current_branch.return_value = "master"
+    mock_git.has_changes.return_value = True
+    mock_git.generate_commit_message.return_value = "auto: 2026-01-01"
+    mock_git.is_ahead_of_remote.return_value = False
+    sleep_side_effect: list[object] = [None, None, KeyboardInterrupt()]
+    with (
+        patch(_GIT_OPS, mock_git),
+        patch(_CONFIG) as mock_config,
+        patch(_ACQUIRE_LOCK),
+        patch.object(ChangeTracker, "start"),
+        patch.object(ChangeTracker, "stop"),
+        patch.object(ChangeTracker, "get_seconds_since_last_change", return_value=999),
+        patch("time.sleep", side_effect=sleep_side_effect),
+        patch(
+            "git_ai_sync.conflict_resolver.commit_with_marker_recovery",
+            new_callable=AsyncMock,
+            side_effect=UnsafePathRefusalError(
+                "Commit refused by pre-commit hook after 3 attempts; "
+                "still-offending paths: unsafe?.md. "
+                "Rename them to Windows-safe names and commit again"
+            ),
+        ),
+        caplog.at_level("INFO"),
+    ):
+        mock_config.return_value.pushgateway_url = None
+        with contextlib.suppress(KeyboardInterrupt):
+            cmd_watch(args)
+
+    assert any("[2] Checking..." in r.getMessage() for r in caplog.records)
+    assert mock_git.get_head_commit.call_count == 4
+    assert mock_git.pull_merge.call_count == 2
+
+
+def test_watch_pulls_when_commit_refused_recovered(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Watch recovers an unsafe path, lands a real commit, and pulls the remote commit."""
+    from git_ai_sync.__main__ import cmd_watch
+    from git_ai_sync.file_watcher import ChangeTracker
+
+    repo = _build_repo_with_remote(tmp_path)
+    expected = sanitize_path("unsafe?.md")
+    args = argparse.Namespace(path=str(repo), interval=30, strategy="merge")
+    sleep_side_effect: list[object] = [None, KeyboardInterrupt()]
+    with (
+        patch("subprocess.run", side_effect=_refusing_commit_run()),
+        patch(_CONFIG) as mock_config,
+        patch(_ACQUIRE_LOCK),
+        patch.object(ChangeTracker, "start"),
+        patch.object(ChangeTracker, "stop"),
+        patch.object(ChangeTracker, "get_seconds_since_last_change", return_value=999),
+        patch("time.sleep", side_effect=sleep_side_effect),
+        caplog.at_level("INFO"),
+    ):
+        mock_config.return_value.pushgateway_url = None
+        with contextlib.suppress(KeyboardInterrupt):
+            cmd_watch(args)
+
+    tree = _git_stdout(repo, "ls-tree", "-r", "HEAD", "--name-only")
+    assert expected in tree
+    assert _git_stdout(repo, "rev-list", "--count", "HEAD..origin/master").strip() == "0"
+    assert any("unsafe?.md" in r.getMessage() for r in caplog.records)
 
 
 class TestCmdDoctor:
