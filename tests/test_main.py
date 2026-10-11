@@ -1769,6 +1769,41 @@ def test_watch_failed_post_retries_each_cycle(stub_notifier, recording_store) ->
     assert recording_store.requests == []
 
 
+def test_watch_ahead_push_failure_is_a_failure(stub_notifier, recording_store) -> None:
+    """A failing push in the ahead-of-remote branch counts as a cycle, never kills the loop."""
+    from git_ai_sync.__main__ import cmd_watch
+    from git_ai_sync.file_watcher import ChangeTracker
+
+    stub = stub_notifier()
+    args = argparse.Namespace(path=".", interval=30, strategy="merge")
+    mock_git = _mock_git_ops()
+    mock_git.find_git_repo.return_value = Path("/repo")
+    mock_git.has_changes.return_value = False
+    mock_git.is_ahead_of_remote.return_value = True
+    mock_git.push.side_effect = GitError("Failed to push: remote unreachable")
+    with (
+        patch(_GIT_OPS, mock_git),
+        patch(_CONFIG) as mock_config,
+        patch(_ACQUIRE_LOCK),
+        patch.object(ChangeTracker, "start"),
+        patch.object(ChangeTracker, "stop"),
+        patch.object(ChangeTracker, "get_seconds_since_last_change", return_value=999),
+        patch("time.sleep", side_effect=_watch_sleep(2)),
+    ):
+        _configure_watch_config(
+            mock_config,
+            stall_threshold=2,
+            attention_script=str(stub.script),
+            attention_store_url=recording_store.url,
+        )
+        with contextlib.suppress(KeyboardInterrupt):
+            cmd_watch(args)
+
+    invocations = stub.invocations()
+    assert len(invocations) == 1
+    assert "2" in _argv_flag(invocations[0], "--payload")
+
+
 def test_watch_stall_alert_integration(stub_notifier, recording_store, tmp_path: Path) -> None:
     """A real watch process posts one card after the second failed cycle and keeps looping."""
     remote = tmp_path / "remote.git"

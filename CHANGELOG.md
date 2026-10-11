@@ -14,6 +14,7 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 - feat: Add `GIT_AI_SYNC_STALL_THRESHOLD`, `GIT_AI_SYNC_ATTENTION_SCRIPT`, and `ATTENTION_STORE_URL` settings and pass them through `setup-launchd` to the installed agent, so a launchd-managed vault can configure the consecutive-failure alert
 - feat: Count consecutive failed watch cycles and post one operator attention card at the threshold, closing it automatically on the next success — a single isolated failure stays silent, a debounce skip is neutral, and a cycle that exits the process is not counted
 - docs: Document the stall-alert settings in `README.md`, extend the launchd plist environment list, and add `docs/attention-store.md` describing the attention-store protocol the alert depends on
+- fix: Treat a failing push in the watch loop's ahead-of-remote branch as a cycle failure instead of an unhandled error that ends the process and zeroes the consecutive-failure counter before it can reach the threshold
 
 ## v0.12.2
 

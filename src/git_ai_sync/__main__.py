@@ -307,15 +307,27 @@ def cmd_watch(args: argparse.Namespace) -> None:
                 if not has_local_changes:
                     if git_operations.is_ahead_of_remote(git_repo):
                         logger.info("Local branch is ahead of remote, pushing...")
-                        git_operations.push(git_repo)
-                        logger.info("Pushed to remote")
-                        if config.pushgateway_url:
-                            metrics.push_last_success(
-                                config.pushgateway_url,
-                                config.pushgateway_username,
-                                config.pushgateway_password,
-                                git_repo,
-                            )
+                        try:
+                            git_operations.push(git_repo)
+                            logger.info("Pushed to remote")
+                            if config.pushgateway_url:
+                                metrics.push_last_success(
+                                    config.pushgateway_url,
+                                    config.pushgateway_username,
+                                    config.pushgateway_password,
+                                    git_repo,
+                                )
+                        except git_operations.GitError as e:
+                            logger.error(f"Sync failed: {e}")
+                            logger.info("Continuing to watch...")
+                            cycle_failed = True
+                            last_error = str(e)
+
+                        except Exception as e:
+                            logger.exception(f"Unexpected error: {e}")
+                            logger.info("Continuing to watch...")
+                            cycle_failed = True
+                            last_error = str(e)
                     else:
                         logger.info("No local changes")
                         if config.pushgateway_url:
