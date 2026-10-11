@@ -8,7 +8,7 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 * MINOR version when you add functionality in a backwards-compatible manner, and
 * PATCH version when you make backwards-compatible bug fixes.
 
-## Unreleased
+## v0.13.0
 
 - feat: Post one operator attention card when a vault's watch loop has failed a configurable number of consecutive cycles, and close it on the next success — a best-effort side channel that never breaks a sync cycle
 - feat: Add `GIT_AI_SYNC_STALL_THRESHOLD`, `GIT_AI_SYNC_ATTENTION_SCRIPT`, and `ATTENTION_STORE_URL` settings and pass them through `setup-launchd` to the installed agent, so a launchd-managed vault can configure the consecutive-failure alert
