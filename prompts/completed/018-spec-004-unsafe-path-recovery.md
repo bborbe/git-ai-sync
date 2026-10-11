@@ -1,8 +1,13 @@
 ---
-status: approved
+status: completed
 spec: [004-bug-unsafe-path-refusal-skips-pull]
+summary: Extended commit_with_marker_recovery to rename unsafe-path refusals to Windows-safe names and retry up to 3 attempts, adding unstage_paths and collision-safe renaming with tests
+execution_id: git-ai-sync-exec-018-spec-004-unsafe-path-recovery
+dark-factory-version: v0.196.0
 created: "2026-10-11T14:30:00Z"
 queued: "2026-10-11T12:54:21Z"
+started: "2026-10-11T12:56:59Z"
+completed: "2026-10-11T13:00:34Z"
 ---
 
 <summary>

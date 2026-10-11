@@ -521,6 +521,37 @@ def stage_file(repo_path: Path, file_path: str) -> None:
         raise GitError(f"Failed to stage {file_path}: {result.stderr}")
 
 
+def unstage_paths(repo_path: Path, paths: list[str]) -> None:
+    """Unstage the given paths, keeping the files on disk.
+
+    Uses `git reset -- <paths>` rather than `git restore --staged -- <paths>`:
+    reset is lenient about a repository with no commits and about paths that are
+    not in the index (both exit 0), whereas restore fails with
+    `fatal: could not resolve 'HEAD'` (exit 128) or a pathspec error (exit 1).
+    A brand-new repo whose very first commit is refused over an unsafe path is a
+    real case, and it must not abort recovery with a `GitError`.
+
+    Args:
+        repo_path: Path to git repository
+        paths: Relative paths to unstage
+
+    Raises:
+        GitError: If unstaging fails
+    """
+    if not paths:
+        # Load-bearing: `git reset --` with no pathspec is a full mixed reset.
+        return
+    result = subprocess.run(
+        ["git", "reset", "--", *paths],
+        cwd=repo_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise GitError(f"Failed to unstage paths: {result.stderr}")
+
+
 def get_conflicted_files(repo_path: Path) -> list[str]:
     """Get list of files with merge conflicts.
 

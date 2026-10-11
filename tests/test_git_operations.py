@@ -34,6 +34,7 @@ from git_ai_sync.git_operations import (
     sanitize_path,
     stage_all,
     stage_file,
+    unstage_paths,
 )
 
 REPO = Path("/fake/repo")
@@ -160,6 +161,19 @@ class TestStageFile:
             pytest.raises(GitError),
         ):
             stage_file(REPO, "file.txt")
+
+
+def test_unstage_paths() -> None:
+    with patch("subprocess.run", return_value=_mock_result()) as mock:
+        unstage_paths(REPO, ["a.md", "b.md"])
+        mock.assert_called_once()
+        assert mock.call_args[0][0] == ["git", "reset", "--", "a.md", "b.md"]
+
+
+def test_unstage_paths_empty_is_noop() -> None:
+    with patch("subprocess.run", return_value=_mock_result()) as mock:
+        unstage_paths(REPO, [])
+        mock.assert_not_called()
 
 
 class TestContinueRebase:
