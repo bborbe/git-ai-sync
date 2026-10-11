@@ -1,8 +1,9 @@
 ---
-status: prompted
+status: verifying
 approved: "2026-10-11T12:16:50Z"
 generating: "2026-10-11T12:32:51Z"
 prompted: "2026-10-11T12:32:51Z"
+verifying: "2026-10-11T13:12:07Z"
 branch: dark-factory/bug-unsafe-path-refusal-skips-pull
 ---
 
