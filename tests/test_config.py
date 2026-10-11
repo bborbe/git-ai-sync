@@ -1,5 +1,7 @@
 """Tests for configuration module."""
 
+from pathlib import Path
+
 import pytest
 
 from git_ai_sync.config import Config
@@ -15,6 +17,9 @@ class TestConfigDefaults:
         monkeypatch.delenv("GIT_AI_SYNC_PUSHGATEWAY_USERNAME", raising=False)
         monkeypatch.delenv("GIT_AI_SYNC_PUSHGATEWAY_PASSWORD", raising=False)
         monkeypatch.delenv("GIT_AI_SYNC_LOG_FILE", raising=False)
+        monkeypatch.delenv("GIT_AI_SYNC_STALL_THRESHOLD", raising=False)
+        monkeypatch.delenv("GIT_AI_SYNC_ATTENTION_SCRIPT", raising=False)
+        monkeypatch.delenv("ATTENTION_STORE_URL", raising=False)
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         monkeypatch.delenv("ANTHROPIC_MODEL", raising=False)
 
@@ -27,6 +32,17 @@ class TestConfigDefaults:
         assert config.pushgateway_username is None
         assert config.pushgateway_password is None
         assert config.log_file is None
+        assert config.stall_threshold == 10
+        assert config.attention_store_url == "http://localhost:18080"
+        assert config.attention_script == str(
+            Path.home()
+            / ".claude"
+            / "plugins"
+            / "marketplaces"
+            / "claude-supervisor"
+            / "scripts"
+            / "attention-ask.py"
+        )
 
     def test_anthropic_key_none_by_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
@@ -83,3 +99,26 @@ class TestConfigFromEnv:
         monkeypatch.setenv("GIT_AI_SYNC_LOG_FILE", "/tmp/git-ai-sync.log")
         config = Config()
         assert config.log_file == "/tmp/git-ai-sync.log"
+
+    def test_stall_threshold_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("GIT_AI_SYNC_STALL_THRESHOLD", "3")
+        config = Config()
+        assert config.stall_threshold == 3
+
+    def test_stall_threshold_one_is_not_rejected_at_construction(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("GIT_AI_SYNC_STALL_THRESHOLD", "1")
+        config = Config()
+        assert config.stall_threshold == 1
+
+    def test_attention_script_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("GIT_AI_SYNC_ATTENTION_SCRIPT", "/tmp/attention-ask.py")
+        config = Config()
+        assert config.attention_script == "/tmp/attention-ask.py"
+
+    def test_attention_store_url_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("ATTENTION_STORE_URL", raising=False)
+        monkeypatch.setenv("ATTENTION_STORE_URL", "http://store.test:9000")
+        config = Config()
+        assert config.attention_store_url == "http://store.test:9000"

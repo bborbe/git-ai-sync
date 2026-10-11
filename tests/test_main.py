@@ -2,8 +2,11 @@
 
 import argparse
 import contextlib
+import os
 import re
 import subprocess
+import sys
+import time
 from collections.abc import Callable
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -121,6 +124,22 @@ def _mock_git_ops() -> MagicMock:
     mock.MarkerRefusalError = MarkerRefusalError
     mock.UnsafePathRefusalError = UnsafePathRefusalError
     return mock
+
+
+def _configure_watch_config(
+    mock_config: MagicMock,
+    *,
+    stall_threshold: int = 10,
+    attention_script: str = "/nonexistent/attention-ask.py",
+    attention_store_url: str = "http://localhost:18080",
+    pushgateway_url: str | None = None,
+) -> MagicMock:
+    """Set every Config attribute cmd_watch reads on a patched Config mock."""
+    mock_config.return_value.pushgateway_url = pushgateway_url
+    mock_config.return_value.stall_threshold = stall_threshold
+    mock_config.return_value.attention_script = attention_script
+    mock_config.return_value.attention_store_url = attention_store_url
+    return mock_config
 
 
 # Patch target for late-imported git_operations
@@ -503,7 +522,7 @@ class TestCmdWatchDispatch:
             patch.object(ChangeTracker, "get_seconds_since_last_change", return_value=999),
             patch("time.sleep", side_effect=sleep_side_effect),
         ):
-            mock_config.return_value.pushgateway_url = None
+            _configure_watch_config(mock_config, pushgateway_url=None)
             with contextlib.suppress(KeyboardInterrupt):
                 cmd_watch(args)
             mock_git.pull_merge.assert_called_once()
@@ -536,7 +555,7 @@ class TestCmdWatchDispatch:
             patch.object(ChangeTracker, "get_seconds_since_last_change", return_value=999),
             patch("time.sleep", side_effect=sleep_side_effect),
         ):
-            mock_config.return_value.pushgateway_url = None
+            _configure_watch_config(mock_config, pushgateway_url=None)
             with contextlib.suppress(KeyboardInterrupt):
                 cmd_watch(args)
             mock_git.pull_rebase.assert_called_once()
@@ -569,7 +588,7 @@ class TestCmdWatchDispatch:
             patch.object(ChangeTracker, "get_seconds_since_last_change", return_value=999),
             patch("time.sleep", side_effect=sleep_side_effect),
         ):
-            mock_config.return_value.pushgateway_url = "https://pushgateway.test"
+            _configure_watch_config(mock_config, pushgateway_url="https://pushgateway.test")
             with contextlib.suppress(KeyboardInterrupt):
                 cmd_watch(args)
             mock_heartbeat.assert_called_once()
@@ -603,7 +622,7 @@ class TestCmdWatchDispatch:
             patch.object(ChangeTracker, "get_seconds_since_last_change", return_value=999),
             patch("time.sleep", side_effect=sleep_side_effect),
         ):
-            mock_config.return_value.pushgateway_url = "https://pushgateway.test"
+            _configure_watch_config(mock_config, pushgateway_url="https://pushgateway.test")
             with contextlib.suppress(KeyboardInterrupt):
                 cmd_watch(args)
             mock_heartbeat.assert_called_once()
@@ -638,7 +657,7 @@ class TestCmdWatchDispatch:
             patch.object(ChangeTracker, "get_seconds_since_last_change", return_value=5),
             patch("time.sleep", side_effect=sleep_side_effect),
         ):
-            mock_config.return_value.pushgateway_url = "https://pushgateway.test"
+            _configure_watch_config(mock_config, pushgateway_url="https://pushgateway.test")
             with contextlib.suppress(KeyboardInterrupt):
                 cmd_watch(args)
             mock_heartbeat.assert_called_once()
@@ -674,7 +693,7 @@ class TestCmdWatchDispatch:
                 new_callable=AsyncMock,
             ),
         ):
-            mock_config.return_value.pushgateway_url = "https://pushgateway.test"
+            _configure_watch_config(mock_config, pushgateway_url="https://pushgateway.test")
             with contextlib.suppress(KeyboardInterrupt):
                 cmd_watch(args)
             mock_heartbeat.assert_called_once()
@@ -714,7 +733,7 @@ class TestCmdWatchDispatch:
                 new_callable=AsyncMock,
             ),
         ):
-            mock_config.return_value.pushgateway_url = "https://pushgateway.test"
+            _configure_watch_config(mock_config, pushgateway_url="https://pushgateway.test")
             with contextlib.suppress(KeyboardInterrupt):
                 cmd_watch(args)
             mock_heartbeat.assert_called_once()
@@ -748,7 +767,7 @@ class TestCmdWatchDispatch:
             patch("time.sleep", side_effect=sleep_side_effect),
             caplog.at_level("WARNING"),
         ):
-            mock_config.return_value.pushgateway_url = None
+            _configure_watch_config(mock_config, pushgateway_url=None)
             with contextlib.suppress(KeyboardInterrupt):
                 cmd_watch(args)
             assert any(
@@ -831,7 +850,7 @@ def test_watch_marker_refusal_exits(caplog: pytest.LogCaptureFixture) -> None:
         pytest.raises(SystemExit) as exc_info,
         caplog.at_level("ERROR"),
     ):
-        mock_config.return_value.pushgateway_url = None
+        _configure_watch_config(mock_config, pushgateway_url=None)
         cmd_watch(args)
     assert exc_info.value.code == 1
     assert not any("Continuing to watch..." in r.message for r in caplog.records)
@@ -875,7 +894,7 @@ def test_watch_marker_refusal_still_pulls() -> None:
         ),
         pytest.raises(SystemExit) as exc_info,
     ):
-        mock_config.return_value.pushgateway_url = None
+        _configure_watch_config(mock_config, pushgateway_url=None)
         cmd_watch(args)
     assert exc_info.value.code == 1
     mock_git.pull_merge.assert_called_once()
@@ -923,7 +942,7 @@ def test_watch_marker_refusal_exits_even_when_pull_fails() -> None:
         ),
         pytest.raises(SystemExit) as exc_info,
     ):
-        mock_config.return_value.pushgateway_url = None
+        _configure_watch_config(mock_config, pushgateway_url=None)
         cmd_watch(args)
     assert exc_info.value.code == 1
 
@@ -964,7 +983,7 @@ def test_watch_unexpected_error_still_pulls() -> None:
             side_effect=RuntimeError("boom"),
         ),
     ):
-        mock_config.return_value.pushgateway_url = None
+        _configure_watch_config(mock_config, pushgateway_url=None)
         with contextlib.suppress(KeyboardInterrupt):
             cmd_watch(args)
     mock_git.pull_merge.assert_called_once()
@@ -1112,7 +1131,7 @@ def test_watch_pulls_when_commit_refused_unrecovered(
         ),
         caplog.at_level("INFO"),
     ):
-        mock_config.return_value.pushgateway_url = None
+        _configure_watch_config(mock_config, pushgateway_url=None)
         with contextlib.suppress(KeyboardInterrupt):
             cmd_watch(args)
 
@@ -1179,7 +1198,7 @@ def test_watch_continues_after_refusal(caplog: pytest.LogCaptureFixture) -> None
         ),
         caplog.at_level("INFO"),
     ):
-        mock_config.return_value.pushgateway_url = None
+        _configure_watch_config(mock_config, pushgateway_url=None)
         with contextlib.suppress(KeyboardInterrupt):
             cmd_watch(args)
 
@@ -1209,7 +1228,7 @@ def test_watch_pulls_when_commit_refused_recovered(
         patch("time.sleep", side_effect=sleep_side_effect),
         caplog.at_level("INFO"),
     ):
-        mock_config.return_value.pushgateway_url = None
+        _configure_watch_config(mock_config, pushgateway_url=None)
         with contextlib.suppress(KeyboardInterrupt):
             cmd_watch(args)
 
@@ -1217,6 +1236,623 @@ def test_watch_pulls_when_commit_refused_recovered(
     assert expected in tree
     assert _git_stdout(repo, "rev-list", "--count", "HEAD..origin/master").strip() == "0"
     assert any("unsafe?.md" in r.getMessage() for r in caplog.records)
+
+
+def _argv_flag(argv: list[str], flag: str) -> str:
+    """Return the value following ``flag`` in a recorded argv list."""
+    return argv[argv.index(flag) + 1]
+
+
+def _watch_sleep(cycles: int) -> Callable[[float], None]:
+    """A ``time.sleep`` stand-in that lets ``cycles`` watch iterations run.
+
+    The notifier spawns a real subprocess, whose internal wait loop also calls
+    ``time.sleep`` with sub-second delays; those must pass through, so only the
+    watch loop's own sleeps (the interval, >= 1s) are counted. The call after
+    the last counted one raises ``KeyboardInterrupt`` to end the loop.
+    """
+    seen: list[float] = []
+
+    def fake_sleep(seconds: float) -> None:
+        if seconds < 1:
+            return
+        seen.append(seconds)
+        if len(seen) > cycles:
+            raise KeyboardInterrupt
+
+    return fake_sleep
+
+
+def test_watch_posts_card_at_threshold(stub_notifier, recording_store) -> None:
+    """Two consecutive failed cycles at threshold 2 post exactly one card."""
+    from git_ai_sync.__main__ import cmd_watch
+    from git_ai_sync.file_watcher import ChangeTracker
+
+    stub = stub_notifier()
+    args = argparse.Namespace(path=".", interval=30, strategy="merge")
+    mock_git = _mock_git_ops()
+    mock_git.find_git_repo.return_value = Path("/repo")
+    mock_git.has_changes.return_value = False
+    mock_git.is_ahead_of_remote.return_value = False
+    mock_git.pull_merge.side_effect = GitError("Sync failed: remote unreachable")
+    with (
+        patch(_GIT_OPS, mock_git),
+        patch(_CONFIG) as mock_config,
+        patch(_ACQUIRE_LOCK),
+        patch.object(ChangeTracker, "start"),
+        patch.object(ChangeTracker, "stop"),
+        patch.object(ChangeTracker, "get_seconds_since_last_change", return_value=999),
+        patch("time.sleep", side_effect=_watch_sleep(2)),
+    ):
+        _configure_watch_config(
+            mock_config,
+            stall_threshold=2,
+            attention_script=str(stub.script),
+            attention_store_url=recording_store.url,
+        )
+        with contextlib.suppress(KeyboardInterrupt):
+            cmd_watch(args)
+
+    invocations = stub.invocations()
+    assert len(invocations) == 1
+    payload = _argv_flag(invocations[0], "--payload")
+    assert "repo" in payload
+    assert "2" in payload
+    assert mock_git.pull_merge.call_count == 2
+    assert recording_store.requests == []
+
+
+def test_watch_posts_card_at_threshold_three(stub_notifier, recording_store) -> None:
+    """At threshold 3, the card carries the count 3 after three failed cycles."""
+    from git_ai_sync.__main__ import cmd_watch
+    from git_ai_sync.file_watcher import ChangeTracker
+
+    stub = stub_notifier()
+    args = argparse.Namespace(path=".", interval=30, strategy="merge")
+    mock_git = _mock_git_ops()
+    mock_git.find_git_repo.return_value = Path("/repo")
+    mock_git.has_changes.return_value = False
+    mock_git.is_ahead_of_remote.return_value = False
+    mock_git.pull_merge.side_effect = GitError("Sync failed: remote unreachable")
+    with (
+        patch(_GIT_OPS, mock_git),
+        patch(_CONFIG) as mock_config,
+        patch(_ACQUIRE_LOCK),
+        patch.object(ChangeTracker, "start"),
+        patch.object(ChangeTracker, "stop"),
+        patch.object(ChangeTracker, "get_seconds_since_last_change", return_value=999),
+        patch("time.sleep", side_effect=_watch_sleep(3)),
+    ):
+        _configure_watch_config(
+            mock_config,
+            stall_threshold=3,
+            attention_script=str(stub.script),
+            attention_store_url=recording_store.url,
+        )
+        with contextlib.suppress(KeyboardInterrupt):
+            cmd_watch(args)
+
+    invocations = stub.invocations()
+    assert len(invocations) == 1
+    assert "3" in _argv_flag(invocations[0], "--payload")
+
+
+def test_watch_silent_below_threshold(stub_notifier, recording_store) -> None:
+    """One isolated failed cycle stays silent."""
+    from git_ai_sync.__main__ import cmd_watch
+    from git_ai_sync.file_watcher import ChangeTracker
+
+    stub = stub_notifier()
+    args = argparse.Namespace(path=".", interval=30, strategy="merge")
+    mock_git = _mock_git_ops()
+    mock_git.find_git_repo.return_value = Path("/repo")
+    mock_git.has_changes.return_value = False
+    mock_git.is_ahead_of_remote.return_value = False
+    mock_git.pull_merge.side_effect = GitError("Sync failed: remote unreachable")
+    with (
+        patch(_GIT_OPS, mock_git),
+        patch(_CONFIG) as mock_config,
+        patch(_ACQUIRE_LOCK),
+        patch.object(ChangeTracker, "start"),
+        patch.object(ChangeTracker, "stop"),
+        patch.object(ChangeTracker, "get_seconds_since_last_change", return_value=999),
+        patch("time.sleep", side_effect=_watch_sleep(1)),
+    ):
+        _configure_watch_config(
+            mock_config,
+            stall_threshold=2,
+            attention_script=str(stub.script),
+            attention_store_url=recording_store.url,
+        )
+        with contextlib.suppress(KeyboardInterrupt):
+            cmd_watch(args)
+
+    assert stub.invocations() == []
+    assert recording_store.requests == []
+
+
+def test_watch_silent_on_isolated_failure(stub_notifier, recording_store) -> None:
+    """A failure followed by a success never posts — nothing to close either."""
+    from git_ai_sync.__main__ import cmd_watch
+    from git_ai_sync.file_watcher import ChangeTracker
+
+    stub = stub_notifier()
+    args = argparse.Namespace(path=".", interval=30, strategy="merge")
+    mock_git = _mock_git_ops()
+    mock_git.find_git_repo.return_value = Path("/repo")
+    mock_git.has_changes.return_value = False
+    mock_git.is_ahead_of_remote.return_value = False
+    mock_git.pull_merge.side_effect = [GitError("Sync failed: remote unreachable"), None]
+    with (
+        patch(_GIT_OPS, mock_git),
+        patch(_CONFIG) as mock_config,
+        patch(_ACQUIRE_LOCK),
+        patch.object(ChangeTracker, "start"),
+        patch.object(ChangeTracker, "stop"),
+        patch.object(ChangeTracker, "get_seconds_since_last_change", return_value=999),
+        patch("time.sleep", side_effect=_watch_sleep(2)),
+    ):
+        _configure_watch_config(
+            mock_config,
+            stall_threshold=2,
+            attention_script=str(stub.script),
+            attention_store_url=recording_store.url,
+        )
+        with contextlib.suppress(KeyboardInterrupt):
+            cmd_watch(args)
+
+    assert stub.invocations() == []
+    assert recording_store.requests == []
+
+
+def test_watch_resets_on_success(stub_notifier, recording_store) -> None:
+    """A success between two failures resets the count, so nothing is posted."""
+    from git_ai_sync.__main__ import cmd_watch
+    from git_ai_sync.file_watcher import ChangeTracker
+
+    stub = stub_notifier()
+    args = argparse.Namespace(path=".", interval=30, strategy="merge")
+    mock_git = _mock_git_ops()
+    mock_git.find_git_repo.return_value = Path("/repo")
+    mock_git.has_changes.return_value = False
+    mock_git.is_ahead_of_remote.return_value = False
+    mock_git.pull_merge.side_effect = [
+        GitError("Sync failed: remote unreachable"),
+        None,
+        GitError("Sync failed: remote unreachable"),
+    ]
+    with (
+        patch(_GIT_OPS, mock_git),
+        patch(_CONFIG) as mock_config,
+        patch(_ACQUIRE_LOCK),
+        patch.object(ChangeTracker, "start"),
+        patch.object(ChangeTracker, "stop"),
+        patch.object(ChangeTracker, "get_seconds_since_last_change", return_value=999),
+        patch("time.sleep", side_effect=_watch_sleep(3)),
+    ):
+        _configure_watch_config(
+            mock_config,
+            stall_threshold=2,
+            attention_script=str(stub.script),
+            attention_store_url=recording_store.url,
+        )
+        with contextlib.suppress(KeyboardInterrupt):
+            cmd_watch(args)
+
+    assert stub.invocations() == []
+    assert recording_store.requests == []
+
+
+def test_watch_skip_is_neutral(
+    stub_notifier, recording_store, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A debounce skip neither resets the counter nor counts as a failure."""
+    from git_ai_sync.__main__ import cmd_watch
+    from git_ai_sync.file_watcher import ChangeTracker
+
+    stub = stub_notifier()
+    args = argparse.Namespace(path=".", interval=30, strategy="merge")
+    mock_git = _mock_git_ops()
+    mock_git.find_git_repo.return_value = Path("/repo")
+    mock_git.has_changes.return_value = False
+    mock_git.is_ahead_of_remote.return_value = False
+    mock_git.pull_merge.side_effect = GitError("Sync failed: remote unreachable")
+    with (
+        patch(_GIT_OPS, mock_git),
+        patch(_CONFIG) as mock_config,
+        patch(_ACQUIRE_LOCK),
+        patch.object(ChangeTracker, "start"),
+        patch.object(ChangeTracker, "stop"),
+        patch.object(ChangeTracker, "get_seconds_since_last_change", side_effect=[999, 5, 999]),
+        patch("time.sleep", side_effect=_watch_sleep(3)),
+        caplog.at_level("INFO"),
+    ):
+        _configure_watch_config(
+            mock_config,
+            stall_threshold=2,
+            attention_script=str(stub.script),
+            attention_store_url=recording_store.url,
+        )
+        with contextlib.suppress(KeyboardInterrupt):
+            cmd_watch(args)
+
+    invocations = stub.invocations()
+    assert len(invocations) == 1
+    assert "2" in _argv_flag(invocations[0], "--payload")
+    assert any("[3] Checking..." in r.getMessage() for r in caplog.records)
+    assert mock_git.pull_merge.call_count == 2
+    assert recording_store.requests == []
+
+
+def test_watch_one_card_until_reset(stub_notifier, recording_store) -> None:
+    """Four failed cycles post exactly one card — never two while it is outstanding."""
+    from git_ai_sync.__main__ import cmd_watch
+    from git_ai_sync.file_watcher import ChangeTracker
+
+    stub = stub_notifier()
+    args = argparse.Namespace(path=".", interval=30, strategy="merge")
+    mock_git = _mock_git_ops()
+    mock_git.find_git_repo.return_value = Path("/repo")
+    mock_git.has_changes.return_value = False
+    mock_git.is_ahead_of_remote.return_value = False
+    mock_git.pull_merge.side_effect = GitError("Sync failed: remote unreachable")
+    with (
+        patch(_GIT_OPS, mock_git),
+        patch(_CONFIG) as mock_config,
+        patch(_ACQUIRE_LOCK),
+        patch.object(ChangeTracker, "start"),
+        patch.object(ChangeTracker, "stop"),
+        patch.object(ChangeTracker, "get_seconds_since_last_change", return_value=999),
+        patch("time.sleep", side_effect=_watch_sleep(4)),
+    ):
+        _configure_watch_config(
+            mock_config,
+            stall_threshold=2,
+            attention_script=str(stub.script),
+            attention_store_url=recording_store.url,
+        )
+        with contextlib.suppress(KeyboardInterrupt):
+            cmd_watch(args)
+
+    assert len(stub.invocations()) == 1
+    assert recording_store.requests == []
+
+
+def test_watch_closes_card_on_recovery(stub_notifier, recording_store) -> None:
+    """The first successful cycle after a stall closes the outstanding card."""
+    from git_ai_sync.__main__ import cmd_watch
+    from git_ai_sync.file_watcher import ChangeTracker
+
+    stub = stub_notifier()
+    item_id = "0" * 32
+    args = argparse.Namespace(path=".", interval=30, strategy="merge")
+    mock_git = _mock_git_ops()
+    mock_git.find_git_repo.return_value = Path("/repo")
+    mock_git.has_changes.return_value = False
+    mock_git.is_ahead_of_remote.return_value = False
+    mock_git.pull_merge.side_effect = [
+        GitError("Sync failed: remote unreachable"),
+        GitError("Sync failed: remote unreachable"),
+        None,
+    ]
+    with (
+        patch(_GIT_OPS, mock_git),
+        patch(_CONFIG) as mock_config,
+        patch(_ACQUIRE_LOCK),
+        patch.object(ChangeTracker, "start"),
+        patch.object(ChangeTracker, "stop"),
+        patch.object(ChangeTracker, "get_seconds_since_last_change", return_value=999),
+        patch("time.sleep", side_effect=_watch_sleep(3)),
+    ):
+        _configure_watch_config(
+            mock_config,
+            stall_threshold=2,
+            attention_script=str(stub.script),
+            attention_store_url=recording_store.url,
+        )
+        with contextlib.suppress(KeyboardInterrupt):
+            cmd_watch(args)
+
+    assert len(stub.invocations()) == 1
+    assert recording_store.requests == [("POST", f"/api/1.0/attention/{item_id}/close")]
+
+
+def test_watch_second_stall_posts_fresh_card(stub_notifier, recording_store) -> None:
+    """A later stall posts a fresh card with the same dedup key."""
+    from git_ai_sync.__main__ import cmd_watch
+    from git_ai_sync.file_watcher import ChangeTracker
+
+    stub = stub_notifier()
+    args = argparse.Namespace(path=".", interval=30, strategy="merge")
+    mock_git = _mock_git_ops()
+    mock_git.find_git_repo.return_value = Path("/repo")
+    mock_git.has_changes.return_value = False
+    mock_git.is_ahead_of_remote.return_value = False
+    failure = GitError("Sync failed: remote unreachable")
+    mock_git.pull_merge.side_effect = [failure, failure, None, failure, failure]
+    with (
+        patch(_GIT_OPS, mock_git),
+        patch(_CONFIG) as mock_config,
+        patch(_ACQUIRE_LOCK),
+        patch.object(ChangeTracker, "start"),
+        patch.object(ChangeTracker, "stop"),
+        patch.object(ChangeTracker, "get_seconds_since_last_change", return_value=999),
+        patch("time.sleep", side_effect=_watch_sleep(5)),
+    ):
+        _configure_watch_config(
+            mock_config,
+            stall_threshold=2,
+            attention_script=str(stub.script),
+            attention_store_url=recording_store.url,
+        )
+        with contextlib.suppress(KeyboardInterrupt):
+            cmd_watch(args)
+
+    invocations = stub.invocations()
+    assert len(invocations) == 2
+    assert _argv_flag(invocations[0], "--dedup-key") == "git-ai-sync-repo-stalled"
+    assert _argv_flag(invocations[1], "--dedup-key") == "git-ai-sync-repo-stalled"
+    assert len(recording_store.requests) == 1
+
+
+def test_watch_notifier_disabled_when_script_absent(
+    stub_notifier, recording_store, caplog: pytest.LogCaptureFixture
+) -> None:
+    """An absent script warns once at startup and performs zero per-cycle work."""
+    from git_ai_sync.__main__ import cmd_watch
+    from git_ai_sync.file_watcher import ChangeTracker
+
+    path = "/nonexistent/attention-ask.py"
+    args = argparse.Namespace(path=".", interval=30, strategy="merge")
+    mock_git = _mock_git_ops()
+    mock_git.find_git_repo.return_value = Path("/repo")
+    mock_git.has_changes.return_value = False
+    mock_git.is_ahead_of_remote.return_value = False
+    mock_git.pull_merge.side_effect = GitError("Sync failed: remote unreachable")
+    with (
+        patch(_GIT_OPS, mock_git),
+        patch(_CONFIG) as mock_config,
+        patch(_ACQUIRE_LOCK),
+        patch.object(ChangeTracker, "start"),
+        patch.object(ChangeTracker, "stop"),
+        patch.object(ChangeTracker, "get_seconds_since_last_change", return_value=999),
+        patch("time.sleep", side_effect=_watch_sleep(3)),
+        caplog.at_level("WARNING"),
+    ):
+        _configure_watch_config(
+            mock_config,
+            stall_threshold=2,
+            attention_script=path,
+            attention_store_url=recording_store.url,
+        )
+        with contextlib.suppress(KeyboardInterrupt):
+            cmd_watch(args)
+
+    assert (
+        sum(1 for r in caplog.records if r.levelname == "WARNING" and path in r.getMessage()) == 1
+    )
+    assert not any("stall card" in r.getMessage() for r in caplog.records)
+    assert recording_store.requests == []
+
+
+def test_watch_exits_when_threshold_below_two(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """watch refuses to start with a threshold below 2, naming the setting."""
+    from git_ai_sync.__main__ import cmd_watch
+
+    monkeypatch.setenv("GIT_AI_SYNC_STALL_THRESHOLD", "1")
+    args = argparse.Namespace(path=".", interval=30, strategy="merge")
+    with caplog.at_level("ERROR"), pytest.raises(SystemExit) as exc_info:
+        cmd_watch(args)
+    assert exc_info.value.code == 1
+    assert any("GIT_AI_SYNC_STALL_THRESHOLD" in r.getMessage() for r in caplog.records)
+    assert not any("[1] Checking..." in r.getMessage() for r in caplog.records)
+
+
+def test_status_ignores_threshold_below_two(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """status is unaffected by a threshold value it never reads."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    monkeypatch.setenv("GIT_AI_SYNC_STALL_THRESHOLD", "1")
+    cmd_status(argparse.Namespace(command="status", path=str(repo)))
+
+
+def test_watch_exit_path_posts_no_card(stub_notifier, recording_store) -> None:
+    """A cycle that ends the process never touches the counter, so no card is posted."""
+    from git_ai_sync.__main__ import cmd_watch
+    from git_ai_sync.file_watcher import ChangeTracker
+
+    stub = stub_notifier()
+    args = argparse.Namespace(path=".", interval=30, strategy="merge")
+    mock_git = _mock_git_ops()
+    mock_git.find_git_repo.return_value = Path("/repo")
+    mock_git.has_changes.return_value = True
+    mock_git.generate_commit_message.return_value = "auto: 2026-01-01"
+    mock_git.is_ahead_of_remote.return_value = False
+    with (
+        patch(_GIT_OPS, mock_git),
+        patch(_CONFIG) as mock_config,
+        patch(_ACQUIRE_LOCK),
+        patch.object(ChangeTracker, "start"),
+        patch.object(ChangeTracker, "stop"),
+        patch.object(ChangeTracker, "get_seconds_since_last_change", return_value=999),
+        patch("time.sleep", side_effect=_watch_sleep(1)),
+        patch(
+            "git_ai_sync.conflict_resolver.commit_with_marker_recovery",
+            new_callable=AsyncMock,
+            side_effect=MarkerRefusalError("refused"),
+        ),
+        pytest.raises(SystemExit),
+    ):
+        _configure_watch_config(
+            mock_config,
+            stall_threshold=2,
+            attention_script=str(stub.script),
+            attention_store_url=recording_store.url,
+        )
+        cmd_watch(args)
+
+    assert stub.invocations() == []
+    assert recording_store.requests == []
+
+
+def test_watch_non_giterror_pull_is_a_failure(stub_notifier, recording_store) -> None:
+    """A non-GitError phase failure is still exactly one cycle failure."""
+    from git_ai_sync.__main__ import cmd_watch
+    from git_ai_sync.file_watcher import ChangeTracker
+
+    stub = stub_notifier()
+    args = argparse.Namespace(path=".", interval=30, strategy="merge")
+    mock_git = _mock_git_ops()
+    mock_git.find_git_repo.return_value = Path("/repo")
+    mock_git.has_changes.return_value = False
+    mock_git.is_ahead_of_remote.return_value = False
+    mock_git.pull_merge.side_effect = RuntimeError("boom")
+    with (
+        patch(_GIT_OPS, mock_git),
+        patch(_CONFIG) as mock_config,
+        patch(_ACQUIRE_LOCK),
+        patch.object(ChangeTracker, "start"),
+        patch.object(ChangeTracker, "stop"),
+        patch.object(ChangeTracker, "get_seconds_since_last_change", return_value=999),
+        patch("time.sleep", side_effect=_watch_sleep(2)),
+    ):
+        _configure_watch_config(
+            mock_config,
+            stall_threshold=2,
+            attention_script=str(stub.script),
+            attention_store_url=recording_store.url,
+        )
+        with contextlib.suppress(KeyboardInterrupt):
+            cmd_watch(args)
+
+    invocations = stub.invocations()
+    assert len(invocations) == 1
+    assert "2" in _argv_flag(invocations[0], "--payload")
+
+
+def test_watch_failed_post_retries_each_cycle(stub_notifier, recording_store) -> None:
+    """A post that fails never sets the guard, so the next failing cycle retries."""
+    from git_ai_sync.__main__ import cmd_watch
+    from git_ai_sync.file_watcher import ChangeTracker
+
+    stub = stub_notifier(exit_code=1)
+    args = argparse.Namespace(path=".", interval=30, strategy="merge")
+    mock_git = _mock_git_ops()
+    mock_git.find_git_repo.return_value = Path("/repo")
+    mock_git.has_changes.return_value = False
+    mock_git.is_ahead_of_remote.return_value = False
+    mock_git.pull_merge.side_effect = GitError("Sync failed: remote unreachable")
+    with (
+        patch(_GIT_OPS, mock_git),
+        patch(_CONFIG) as mock_config,
+        patch(_ACQUIRE_LOCK),
+        patch.object(ChangeTracker, "start"),
+        patch.object(ChangeTracker, "stop"),
+        patch.object(ChangeTracker, "get_seconds_since_last_change", return_value=999),
+        patch("time.sleep", side_effect=_watch_sleep(4)),
+    ):
+        _configure_watch_config(
+            mock_config,
+            stall_threshold=2,
+            attention_script=str(stub.script),
+            attention_store_url=recording_store.url,
+        )
+        with contextlib.suppress(KeyboardInterrupt):
+            cmd_watch(args)
+
+    assert len(stub.invocations()) == 3
+    assert recording_store.requests == []
+
+
+def test_watch_ahead_push_failure_is_a_failure(stub_notifier, recording_store) -> None:
+    """A failing push in the ahead-of-remote branch counts as a cycle, never kills the loop."""
+    from git_ai_sync.__main__ import cmd_watch
+    from git_ai_sync.file_watcher import ChangeTracker
+
+    stub = stub_notifier()
+    args = argparse.Namespace(path=".", interval=30, strategy="merge")
+    mock_git = _mock_git_ops()
+    mock_git.find_git_repo.return_value = Path("/repo")
+    mock_git.has_changes.return_value = False
+    mock_git.is_ahead_of_remote.return_value = True
+    mock_git.push.side_effect = GitError("Failed to push: remote unreachable")
+    with (
+        patch(_GIT_OPS, mock_git),
+        patch(_CONFIG) as mock_config,
+        patch(_ACQUIRE_LOCK),
+        patch.object(ChangeTracker, "start"),
+        patch.object(ChangeTracker, "stop"),
+        patch.object(ChangeTracker, "get_seconds_since_last_change", return_value=999),
+        patch("time.sleep", side_effect=_watch_sleep(2)),
+    ):
+        _configure_watch_config(
+            mock_config,
+            stall_threshold=2,
+            attention_script=str(stub.script),
+            attention_store_url=recording_store.url,
+        )
+        with contextlib.suppress(KeyboardInterrupt):
+            cmd_watch(args)
+
+    invocations = stub.invocations()
+    assert len(invocations) == 1
+    assert "2" in _argv_flag(invocations[0], "--payload")
+
+
+def test_watch_stall_alert_integration(stub_notifier, recording_store, tmp_path: Path) -> None:
+    """A real watch process posts one card after the second failed cycle and keeps looping."""
+    remote = tmp_path / "remote.git"
+    vault = tmp_path / "vault"
+    subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
+    subprocess.run(["git", "clone", "-q", str(remote), str(vault)], check=True)
+    subprocess.run(["git", "config", "user.email", "t@t"], cwd=vault, check=True)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=vault, check=True)
+    subprocess.run(["git", "config", "commit.gpgsign", "false"], cwd=vault, check=True)
+    (vault / "seed.md").write_text("seed", encoding="utf-8")
+    subprocess.run(["git", "add", "seed.md"], cwd=vault, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "seed"], cwd=vault, check=True)
+    subprocess.run(["git", "push", "-q", "-u", "origin", "HEAD"], cwd=vault, check=True)
+    (vault / ".obsidian").mkdir()
+
+    # Deleting the bare remote makes the clone's origin an unreachable local remote.
+    subprocess.run(["rm", "-rf", str(remote)], check=True)
+
+    stub = stub_notifier()
+    env = {
+        **os.environ,
+        "GIT_AI_SYNC_STALL_THRESHOLD": "2",
+        "GIT_AI_SYNC_ATTENTION_SCRIPT": str(stub.script),
+        "ATTENTION_STORE_URL": recording_store.url,
+    }
+    env.pop("GIT_AI_SYNC_PUSHGATEWAY_URL", None)
+
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "git_ai_sync", "watch", "--interval", "1", str(vault)],
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    try:
+        deadline = time.monotonic() + 15.0
+        while time.monotonic() < deadline and not stub.invocations():
+            time.sleep(0.25)
+        time.sleep(2.0)
+        assert proc.poll() is None
+        proc.terminate()
+        output, _ = proc.communicate(timeout=10)
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.communicate(timeout=10)
+
+    assert len(stub.invocations()) == 1
+    assert output.count("Sync failed") >= 3
 
 
 class TestCmdDoctor:

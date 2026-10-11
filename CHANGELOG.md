@@ -8,6 +8,14 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 * MINOR version when you add functionality in a backwards-compatible manner, and
 * PATCH version when you make backwards-compatible bug fixes.
 
+## Unreleased
+
+- feat: Post one operator attention card when a vault's watch loop has failed a configurable number of consecutive cycles, and close it on the next success — a best-effort side channel that never breaks a sync cycle
+- feat: Add `GIT_AI_SYNC_STALL_THRESHOLD`, `GIT_AI_SYNC_ATTENTION_SCRIPT`, and `ATTENTION_STORE_URL` settings and pass them through `setup-launchd` to the installed agent, so a launchd-managed vault can configure the consecutive-failure alert
+- feat: Count consecutive failed watch cycles and post one operator attention card at the threshold, closing it automatically on the next success — a single isolated failure stays silent, a debounce skip is neutral, and a cycle that exits the process is not counted
+- docs: Document the stall-alert settings in `README.md`, extend the launchd plist environment list, and add `docs/attention-store.md` describing the attention-store protocol the alert depends on
+- fix: Treat a failing push in the watch loop's ahead-of-remote branch as a cycle failure instead of an unhandled error that ends the process and zeroes the consecutive-failure counter before it can reach the threshold
+
 ## v0.12.2
 
 - fix: Classify a pre-commit-hook refusal over a staged path that is not safe on Windows — add `UnsafePathRefusalError`, `is_unsafe_path_refusal()`, `get_blocked_paths()`, and `sanitize_path()` so the offending paths can be renamed to Windows-safe names (recovery wiring lands in a later prompt)
