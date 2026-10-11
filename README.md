@@ -104,6 +104,9 @@ See [`docs/launchd-service.md`](docs/launchd-service.md) for the full guide and 
 | `GIT_AI_SYNC_PUSHGATEWAY_USERNAME` | Pushgateway basic-auth username | unset |
 | `GIT_AI_SYNC_PUSHGATEWAY_PASSWORD` | Pushgateway basic-auth password | unset |
 | `GIT_AI_SYNC_LOG_FILE` | Log file path for the rotating file handler (5 MB x 5 backups) | unset (stderr only) |
+| `GIT_AI_SYNC_STALL_THRESHOLD` | Consecutive failed watch cycles before one attention card is posted (must be >= 2) | `10` |
+| `GIT_AI_SYNC_ATTENTION_SCRIPT` | Path to the supervisor's `attention-ask.py` posting script | `~/.claude/plugins/marketplaces/claude-supervisor/scripts/attention-ask.py` |
+| `ATTENTION_STORE_URL` | Attention store base URL (no `GIT_AI_SYNC_` prefix — the same variable the posting script reads) | `http://localhost:18080` |
 
 `ANTHROPIC_API_KEY` is only required for conflict resolution (uses Claude Code auth otherwise).
 
@@ -119,6 +122,20 @@ A fresh heartbeat with a stale last-success means the vault has stopped landing 
 Credentials come from `GIT_AI_SYNC_PUSHGATEWAY_USERNAME` / `GIT_AI_SYNC_PUSHGATEWAY_PASSWORD` and are never logged. Without `GIT_AI_SYNC_PUSHGATEWAY_URL` the feature is disabled and makes no network calls; failed pushes are logged and never break the sync loop.
 
 **Caveat:** exactly ONE watcher per vault is required — two watchers pushing the same vault overwrite each other's series and can mask a wedge.
+
+## Stall Alert
+
+A watch loop that keeps failing while the process stays alive — an unreachable remote, a refused commit — is invisible to liveness checks: the watcher is up, but no commit lands. When `GIT_AI_SYNC_STALL_THRESHOLD` consecutive watch cycles have failed, `git-ai-sync` posts one operator card on the attention board so the stall is visible instead of silent.
+
+Exactly one card is posted per stall, and it is closed automatically on the next successful cycle; a later stall posts a fresh card. A single isolated failure stays silent, and a debounce skip neither counts as a failure nor resets the counter.
+
+The notifier is best-effort: a missing script, a non-zero exit, a timeout, or an unreachable store is logged as a warning and never breaks or delays a sync cycle.
+
+The notifier is **disabled when the script is absent**. There is no enable/disable flag — a missing script path is the disable path. One startup warning names the missing path, and the sync loop then behaves exactly as it does without the feature.
+
+The alert is `watch`-mode only: `git-ai-sync sync`, `status`, and `doctor` are unaffected by the threshold.
+
+The store protocol the alert depends on is documented in [`docs/attention-store.md`](docs/attention-store.md).
 
 ## Troubleshooting
 

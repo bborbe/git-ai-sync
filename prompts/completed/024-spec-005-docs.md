@@ -1,8 +1,13 @@
 ---
-status: approved
+status: completed
 spec: [005-consecutive-failure-attention-alert]
+summary: Documented the stall-alert settings in README.md and docs/launchd-service.md and added docs/attention-store.md describing the attention-store post/close protocol
+execution_id: git-ai-sync-exec-024-spec-005-docs
+dark-factory-version: v0.196.0
 created: "2026-10-11T16:26:06Z"
 queued: "2026-10-11T18:27:07Z"
+started: "2026-10-11T18:38:42Z"
+completed: "2026-10-11T18:40:58Z"
 ---
 
 # Document the stall alert settings and the attention-store contract
