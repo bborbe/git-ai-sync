@@ -189,6 +189,7 @@ def cmd_watch(args: argparse.Namespace) -> None:
             # Safe to sync - no recent changes
             logger.info(f"[{iteration}] Checking...")
             has_local_changes = False
+            marker_refused = False
             try:
                 # Check for local changes first
                 has_local_changes = git_operations.has_changes(git_repo)
@@ -214,9 +215,12 @@ def cmd_watch(args: argparse.Namespace) -> None:
                     logger.info(f"Committed: {commit_msg}")
 
             except git_operations.MarkerRefusalError as e:
-                # A marker refusal is fatal in watch mode (spec-002): exit non-zero.
+                # A marker refusal is fatal in watch mode (spec-002) and must still
+                # exit non-zero — but only AFTER the pull below. Exiting here would
+                # let a failed commit suppress a remote operation it has nothing to
+                # do with, which is the exact bug this restructure exists to remove.
                 logger.error(f"Sync failed: {e}")
-                sys.exit(1)
+                marker_refused = True
 
             except git_operations.UnsafePathRefusalError as e:
                 # A commit that could not be made must NOT skip the pull: log
@@ -265,6 +269,10 @@ def cmd_watch(args: argparse.Namespace) -> None:
                 logger.exception(f"Unexpected error: {e}")
                 logger.info("Continuing to watch...")
                 continue
+
+            if marker_refused:
+                # The pull above has run; now honour spec-002's non-zero exit.
+                sys.exit(1)
 
             if not has_local_changes:
                 if git_operations.is_ahead_of_remote(git_repo):
@@ -379,6 +387,13 @@ def cmd_sync(args: argparse.Namespace) -> None:
         sync_exit_code = 1
     except git_operations.GitError as e:
         logger.error(f"Failed to commit: {e}")
+        sync_exit_code = 1
+    except Exception as e:
+        # A non-GitError from the commit must not skip the pull either. Reachable in
+        # production: claude_code_sdk raises bare Exception inside an anyio task
+        # group, which surfaces as ExceptionGroup — not a GitError, so it passes
+        # through every handler above.
+        logger.exception(f"Unexpected error during commit: {e}")
         sync_exit_code = 1
 
     # 5. Pull with strategy — ALWAYS runs, even when the commit above failed.

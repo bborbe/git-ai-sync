@@ -652,3 +652,46 @@ async def test_commit_with_marker_recovery_unsafe_path_recovery_bounded(tmp_path
         check=True,
     ).stdout
     assert "?? unsafe?.md" in status
+
+
+async def test_commit_with_marker_recovery_reports_the_last_refusal(tmp_path: Path) -> None:
+    """The final error names the path from the refusal that actually stopped the loop.
+
+    Regression guard: parsing the refusal AFTER the max-attempts break left
+    `blocked_paths` holding the previous round's list, so the error named a path that
+    was no longer offending while the path that did stop the loop stayed staged —
+    leaving the tree dirty and the pull this exists to protect unable to run.
+    """
+    _init_repo(tmp_path)
+    (tmp_path / "seed.md").write_text("seed", encoding="utf-8")
+    subprocess.run(["git", "add", "seed.md"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "seed"], cwd=tmp_path, check=True)
+
+    names = ["a?.md", "b?.md", "c?.md"]
+    seen = {"n": 0}
+    real_run = subprocess.run
+
+    def fake_run(*args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
+        argv = args[0] if args else kwargs.get("args")
+        if isinstance(argv, list) and argv[:2] == ["git", "commit"]:
+            name = names[min(seen["n"], len(names) - 1)]
+            seen["n"] += 1
+            stderr = (
+                "\n"
+                "✋ Blocked: staged path is not safe on Windows\n"
+                "\n"
+                f'     {name}  —  contains one of  : ? * " < > |\n'
+            )
+            return subprocess.CompletedProcess(args=argv, returncode=1, stdout="", stderr=stderr)
+        return real_run(*args, **kwargs)  # type: ignore[arg-type]
+
+    with (
+        patch("git_ai_sync.conflict_resolver._recover_unsafe_paths", return_value=[]),
+        patch("subprocess.run", side_effect=fake_run),
+        pytest.raises(UnsafePathRefusalError) as exc_info,
+    ):
+        await commit_with_marker_recovery(tmp_path, "msg")
+
+    message = str(exc_info.value)
+    assert "c?.md" in message, f"final error must name the last refusal, got: {message}"
+    assert "a?.md" not in message

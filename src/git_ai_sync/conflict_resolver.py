@@ -360,9 +360,15 @@ async def commit_with_marker_recovery(
             return
         except UnsafePathRefusalError as e:
             refusal = "unsafe"
+            # Parse BEFORE the attempt check: the refusal that ends the loop is the
+            # one whose paths must be reported and unstaged. Parsing after the break
+            # leaves `blocked_paths` holding the previous round's list, so the final
+            # error names a path that is no longer offending and the path that
+            # actually stopped the loop stays staged — leaving the tree dirty and
+            # the pull this exists to protect still unable to run.
+            blocked_paths = git_operations.get_blocked_paths(str(e))
             if attempt >= max_attempts:
                 break
-            blocked_paths = git_operations.get_blocked_paths(str(e))
             if not blocked_paths:
                 break
             logger.info(

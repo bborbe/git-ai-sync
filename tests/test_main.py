@@ -839,6 +839,119 @@ def test_watch_marker_refusal_exits(caplog: pytest.LogCaptureFixture) -> None:
     assert any("Run 'git-ai-sync resolve" in r.message for r in caplog.records)
 
 
+def test_watch_marker_refusal_still_pulls() -> None:
+    """A marker refusal exits non-zero, but only AFTER the pull has run.
+
+    Regression guard: exiting before the pull let a failed commit suppress a remote
+    operation it has nothing to do with — the bug this restructure removed.
+    """
+    import argparse
+
+    from git_ai_sync.__main__ import cmd_watch
+    from git_ai_sync.file_watcher import ChangeTracker
+
+    args = argparse.Namespace(path=".", interval=30, strategy="merge")
+    mock_git = _mock_git_ops()
+    mock_git.find_git_repo.return_value = Path("/repo")
+    mock_git.get_current_branch.return_value = "master"
+    mock_git.has_changes.return_value = True
+    mock_git.generate_commit_message.return_value = "auto: 2026-01-01"
+    mock_git.is_ahead_of_remote.return_value = False
+    sleep_side_effect: list[object] = [None, KeyboardInterrupt()]
+    with (
+        patch(_GIT_OPS, mock_git),
+        patch(_CONFIG) as mock_config,
+        patch(_ACQUIRE_LOCK),
+        patch("git_ai_sync.metrics.push_heartbeat"),
+        patch("git_ai_sync.metrics.push_last_success"),
+        patch.object(ChangeTracker, "start"),
+        patch.object(ChangeTracker, "stop"),
+        patch.object(ChangeTracker, "get_seconds_since_last_change", return_value=999),
+        patch("time.sleep", side_effect=sleep_side_effect),
+        patch(
+            "git_ai_sync.conflict_resolver.commit_with_marker_recovery",
+            new_callable=AsyncMock,
+            side_effect=MarkerRefusalError("refused"),
+        ),
+        pytest.raises(SystemExit) as exc_info,
+    ):
+        mock_config.return_value.pushgateway_url = None
+        cmd_watch(args)
+    assert exc_info.value.code == 1
+    mock_git.pull_merge.assert_called_once()
+
+
+def test_watch_unexpected_error_still_pulls() -> None:
+    """A non-GitError from the commit must not skip the pull.
+
+    Reachable in production: claude_code_sdk raises bare Exception inside an anyio
+    task group, surfacing as ExceptionGroup — not a GitError.
+    """
+    import argparse
+    import contextlib
+
+    from git_ai_sync.__main__ import cmd_watch
+    from git_ai_sync.file_watcher import ChangeTracker
+
+    args = argparse.Namespace(path=".", interval=30, strategy="merge")
+    mock_git = _mock_git_ops()
+    mock_git.find_git_repo.return_value = Path("/repo")
+    mock_git.get_current_branch.return_value = "master"
+    mock_git.has_changes.return_value = True
+    mock_git.generate_commit_message.return_value = "auto: 2026-01-01"
+    mock_git.is_ahead_of_remote.return_value = False
+    sleep_side_effect: list[object] = [None, KeyboardInterrupt()]
+    with (
+        patch(_GIT_OPS, mock_git),
+        patch(_CONFIG) as mock_config,
+        patch(_ACQUIRE_LOCK),
+        patch("git_ai_sync.metrics.push_heartbeat"),
+        patch("git_ai_sync.metrics.push_last_success"),
+        patch.object(ChangeTracker, "start"),
+        patch.object(ChangeTracker, "stop"),
+        patch.object(ChangeTracker, "get_seconds_since_last_change", return_value=999),
+        patch("time.sleep", side_effect=sleep_side_effect),
+        patch(
+            "git_ai_sync.conflict_resolver.commit_with_marker_recovery",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("boom"),
+        ),
+    ):
+        mock_config.return_value.pushgateway_url = None
+        with contextlib.suppress(KeyboardInterrupt):
+            cmd_watch(args)
+    mock_git.pull_merge.assert_called_once()
+
+
+def test_sync_unexpected_error_still_pulls() -> None:
+    """cmd_sync pulls even when the commit raises outside the GitError hierarchy."""
+    import argparse
+
+    from git_ai_sync.__main__ import cmd_sync
+
+    mock_git = _mock_git_ops()
+    mock_git.find_git_repo.return_value = Path("/repo")
+    mock_git.has_changes.return_value = True
+    mock_git.generate_commit_message.return_value = "auto: 2026-01-01"
+    mock_git.is_ahead_of_remote.return_value = False
+    with (
+        patch(_GIT_OPS, mock_git),
+        patch(_CONFIG) as mock_config,
+        patch(_ACQUIRE_LOCK),
+        patch("git_ai_sync.metrics.push_last_success"),
+        patch(
+            "git_ai_sync.conflict_resolver.commit_with_marker_recovery",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("boom"),
+        ),
+    ):
+        mock_config.return_value.pushgateway_url = None
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_sync(argparse.Namespace(command="sync", path=".", strategy="merge"))
+    assert exc_info.value.code == 1
+    mock_git.pull_merge.assert_called_once()
+
+
 BLOCKED_STDERR = (
     "\n"
     "✋ Blocked: staged path is not safe on Windows\n"
