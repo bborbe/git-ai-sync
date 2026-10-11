@@ -262,18 +262,19 @@ def cmd_watch(args: argparse.Namespace) -> None:
                     logger.error(f"Run 'git-ai-sync resolve {git_repo}' to resolve")
                     sys.exit(1)
                 logger.error(f"Sync failed: {e}")
-                logger.info("Continuing to watch...")
                 if marker_refused:
                     # Honour spec-002's non-zero exit even when the pull also failed —
                     # `continue` here would swallow it and loop silently forever.
                     sys.exit(1)
+                logger.info("Continuing to watch...")
                 continue
 
             except Exception as e:
                 logger.exception(f"Unexpected error: {e}")
-                logger.info("Continuing to watch...")
                 if marker_refused:
+                    # Same reasoning as the GitError sibling above.
                     sys.exit(1)
+                logger.info("Continuing to watch...")
                 continue
 
             if marker_refused:
