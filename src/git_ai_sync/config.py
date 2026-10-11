@@ -1,7 +1,26 @@
 """Configuration management."""
 
+from pathlib import Path
+
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _default_attention_script() -> str:
+    """The supervisor plugin's attention-ask.py, resolved from the home directory at runtime.
+
+    Deliberately the marketplace path, not the version-numbered plugin cache path,
+    which changes on every plugin update.
+    """
+    return str(
+        Path.home()
+        / ".claude"
+        / "plugins"
+        / "marketplaces"
+        / "claude-supervisor"
+        / "scripts"
+        / "attention-ask.py"
+    )
 
 
 class Config(BaseSettings):
@@ -45,6 +64,24 @@ class Config(BaseSettings):
     pushgateway_password: str | None = Field(
         default=None,
         description="Pushgateway basic-auth password",
+    )
+
+    # Consecutive-failure attention alert (watch mode only)
+    stall_threshold: int = Field(
+        default=10,
+        description=(
+            "Consecutive failed watch cycles before one attention card is posted"
+            " (must be >= 2; the check is applied when watch starts)"
+        ),
+    )
+    attention_script: str = Field(
+        default_factory=_default_attention_script,
+        description="Path to the supervisor attention-ask.py script (GIT_AI_SYNC_ATTENTION_SCRIPT)",
+    )
+    attention_store_url: str = Field(
+        default="http://localhost:18080",
+        alias="ATTENTION_STORE_URL",
+        description="Attention store base URL — the same variable the posting script reads",
     )
 
     # Rotating file logging

@@ -130,6 +130,47 @@ class TestGeneratePlist:
         plist2 = generate_plist(_BINARY, _VAULT, "personal", env)
         assert plistlib.dumps(plist1, sort_keys=True) == plistlib.dumps(plist2, sort_keys=True)
 
+    def test_full_plist_includes_stall_alert_env(self) -> None:
+        env = {
+            "GIT_AI_SYNC_PUSHGATEWAY_URL": "https://pushgateway.example.com",
+            "GIT_AI_SYNC_PUSHGATEWAY_USERNAME": "monitoring",
+            "GIT_AI_SYNC_PUSHGATEWAY_PASSWORD": "s3cret",
+            "GIT_AI_SYNC_STALL_THRESHOLD": "3",
+            "GIT_AI_SYNC_ATTENTION_SCRIPT": "/tmp/attention-ask.py",
+            "ATTENTION_STORE_URL": "http://store.test:9000",
+        }
+        plist1 = generate_plist(_BINARY, _VAULT, "personal", env)
+        plist2 = generate_plist(_BINARY, _VAULT, "personal", env)
+        assert plist1["EnvironmentVariables"] == {
+            "GIT_AI_SYNC_PUSHGATEWAY_URL": "https://pushgateway.example.com",
+            "GIT_AI_SYNC_PUSHGATEWAY_USERNAME": "monitoring",
+            "GIT_AI_SYNC_PUSHGATEWAY_PASSWORD": "s3cret",
+            "GIT_AI_SYNC_STALL_THRESHOLD": "3",
+            "GIT_AI_SYNC_ATTENTION_SCRIPT": "/tmp/attention-ask.py",
+            "ATTENTION_STORE_URL": "http://store.test:9000",
+        }
+        assert plistlib.dumps(plist1, sort_keys=True) == plistlib.dumps(plist2, sort_keys=True)
+
+    def test_stall_alert_env_subset(self) -> None:
+        stall_only = {
+            "GIT_AI_SYNC_STALL_THRESHOLD": "3",
+            "ATTENTION_STORE_URL": "http://store.test:9000",
+        }
+        assert generate_plist(_BINARY, _VAULT, "personal", stall_only)["EnvironmentVariables"] == {
+            "GIT_AI_SYNC_STALL_THRESHOLD": "3",
+            "ATTENTION_STORE_URL": "http://store.test:9000",
+        }
+
+        pushgateway_only = {
+            "GIT_AI_SYNC_PUSHGATEWAY_URL": "https://pushgateway.example.com",
+            "GIT_AI_SYNC_PUSHGATEWAY_USERNAME": "monitoring",
+            "GIT_AI_SYNC_PUSHGATEWAY_PASSWORD": "s3cret",
+        }
+        assert (
+            generate_plist(_BINARY, _VAULT, "personal", pushgateway_only)["EnvironmentVariables"]
+            == pushgateway_only
+        )
+
     def test_write_plist_idempotent(self, tmp_path: Path) -> None:
         plist = generate_plist(_BINARY, _VAULT, "personal", {})
         target = tmp_path / "LaunchAgents" / "com.github.bborbe.git-ai-sync-personal.plist"

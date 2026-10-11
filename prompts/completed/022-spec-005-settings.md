@@ -1,8 +1,13 @@
 ---
-status: approved
+status: completed
 spec: [005-consecutive-failure-attention-alert]
+summary: Added GIT_AI_SYNC_STALL_THRESHOLD, GIT_AI_SYNC_ATTENTION_SCRIPT, and ATTENTION_STORE_URL settings to the pydantic Config model and passed all six keys through setup-launchd's plist EnvironmentVariables, with unit tests for both and a CHANGELOG bullet.
+execution_id: git-ai-sync-exec-022-spec-005-settings
+dark-factory-version: v0.196.0
 created: "2026-10-11T16:26:06Z"
 queued: "2026-10-11T18:27:07Z"
+started: "2026-10-11T18:30:52Z"
+completed: "2026-10-11T18:32:20Z"
 ---
 
 # Declare the stall-alert settings and thread them through setup-launchd
