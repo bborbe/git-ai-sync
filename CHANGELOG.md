@@ -8,7 +8,7 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 * MINOR version when you add functionality in a backwards-compatible manner, and
 * PATCH version when you make backwards-compatible bug fixes.
 
-## Unreleased
+## v0.12.2
 
 - fix: Classify a pre-commit-hook refusal over a staged path that is not safe on Windows — add `UnsafePathRefusalError`, `is_unsafe_path_refusal()`, `get_blocked_paths()`, and `sanitize_path()` so the offending paths can be renamed to Windows-safe names (recovery wiring lands in a later prompt)
 - fix: Auto-recover when the pre-commit hook refuses a commit over a path that is not safe on Windows — rename each offending path to a Windows-safe name, re-stage, and retry up to 3 attempts; on exhaustion unstage the offending paths and raise with every still-offending path named
