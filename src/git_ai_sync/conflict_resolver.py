@@ -16,6 +16,7 @@ from claude_code_sdk._errors import MessageParseError
 from claude_code_sdk._internal import message_parser as _message_parser
 
 from git_ai_sync import git_operations
+from git_ai_sync.git_operations import UnsafePathRefusalError
 
 logger = logging.getLogger(__name__)
 
@@ -286,13 +287,54 @@ async def resolve_marker_flagged_files(
             raise ConflictError(f"Failed to resolve marker-flagged file {file_path}: {e}") from e
 
 
+def _recover_unsafe_paths(repo_path: Path, blocked_paths: list[str]) -> list[str]:
+    """Rename each offending path to a Windows-safe name and re-stage it.
+
+    Args:
+        repo_path: Path to git repository
+        blocked_paths: Paths the pre-commit hook refused as not safe on Windows
+
+    Returns:
+        Paths that could not be renamed (still offending)
+    """
+    failed: list[str] = []
+    for old_path in blocked_paths:
+        try:
+            new_path = git_operations.sanitize_path(old_path)
+            # Disambiguate against a file already on disk: never overwrite.
+            # Operate on the FINAL path component only — rpartition on the whole
+            # path would find a dot inside a directory name and rename the directory.
+            if (repo_path / new_path).exists():
+                parent, _, leaf = new_path.rpartition("/")
+                stem, dot, ext = leaf.rpartition(".")
+                if not dot:
+                    stem, dot, ext = leaf, "", ""
+                counter = 2
+                while True:
+                    candidate_leaf = f"{stem}-{counter}{dot}{ext}"
+                    candidate = f"{parent}/{candidate_leaf}" if parent else candidate_leaf
+                    if not (repo_path / candidate).exists():
+                        break
+                    counter += 1
+                new_path = candidate
+            (repo_path / new_path).parent.mkdir(parents=True, exist_ok=True)
+            (repo_path / old_path).rename(repo_path / new_path)
+            git_operations.stage_file(repo_path, old_path)
+            git_operations.stage_file(repo_path, new_path)
+            logger.info(f"Renamed unsafe path: {old_path} -> {new_path}")
+        except (OSError, git_operations.GitError) as e:
+            logger.error(f"Failed to rename unsafe path {old_path}: {e}")
+            failed.append(old_path)
+    return failed
+
+
 async def commit_with_marker_recovery(
     repo_path: Path,
     message: str,
     model: str = "claude-sonnet-4-5-20250929",
 ) -> None:
     """Commit with bounded auto-recovery when the pre-commit hook refuses the
-    commit over conflict-marker content.
+    commit over conflict-marker content or a path that is not safe on Windows.
 
     Args:
         repo_path: Path to git repository
@@ -302,16 +344,48 @@ async def commit_with_marker_recovery(
     Raises:
         MarkerRefusalError: If the commit is still refused after the bounded
             recovery rounds (the final error names still-flagged files)
+        UnsafePathRefusalError: If the commit is still refused over an unsafe path
+            after the bounded recovery rounds (the final error names the
+            still-offending paths)
         GitError: Non-marker commit failures, propagated unchanged
     """
     max_attempts = 3
     attempt = 0
+    blocked_paths: list[str] = []
+    refusal = ""
     while True:
         attempt += 1
         try:
             git_operations.commit(repo_path, message)
             return
+        except UnsafePathRefusalError as e:
+            refusal = "unsafe"
+            # Parse BEFORE the attempt check: the refusal that ends the loop is the
+            # one whose paths must be reported and unstaged. Parsing after the break
+            # leaves `blocked_paths` holding the previous round's list, so the final
+            # error names a path that is no longer offending and the path that
+            # actually stopped the loop stays staged — leaving the tree dirty and
+            # the pull this exists to protect still unable to run.
+            blocked_paths = git_operations.get_blocked_paths(str(e))
+            if attempt >= max_attempts:
+                break
+            if not blocked_paths:
+                break
+            logger.info(
+                f"Unsafe-path refusal detected; renaming {len(blocked_paths)} "
+                f"offending path(s): {', '.join(blocked_paths)}"
+            )
+            still_failing = _recover_unsafe_paths(repo_path, blocked_paths)
+            if still_failing:
+                git_operations.unstage_paths(repo_path, still_failing)
+                blocked_paths = still_failing
+                logger.error(
+                    f"Could not rename {len(still_failing)} offending path(s); "
+                    f"unstaged them: {', '.join(still_failing)}"
+                )
+            logger.info("Recovery round complete; retrying commit")
         except git_operations.MarkerRefusalError:
+            refusal = "marker"
             if attempt >= max_attempts:
                 break
             flagged_files = git_operations.get_marker_flagged_files(repo_path)
@@ -330,11 +404,19 @@ async def commit_with_marker_recovery(
                 ) from e
             logger.info("Recovery round complete; retrying commit")
 
-    still_flagged = git_operations.get_marker_flagged_files(repo_path)
-    raise git_operations.MarkerRefusalError(
+    if refusal == "marker":
+        still_flagged = git_operations.get_marker_flagged_files(repo_path)
+        raise git_operations.MarkerRefusalError(
+            f"Commit refused by pre-commit hook after {max_attempts} attempts; "
+            f"still-flagged files: {', '.join(still_flagged) or 'none'}. "
+            "Run 'git-ai-sync resolve <path>' to resolve"
+        )
+
+    git_operations.unstage_paths(repo_path, blocked_paths)
+    raise UnsafePathRefusalError(
         f"Commit refused by pre-commit hook after {max_attempts} attempts; "
-        f"still-flagged files: {', '.join(still_flagged) or 'none'}. "
-        "Run 'git-ai-sync resolve <path>' to resolve"
+        f"still-offending paths: {', '.join(blocked_paths) or 'none'}. "
+        "Rename them to Windows-safe names and commit again"
     )
 
 

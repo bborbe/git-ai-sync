@@ -188,6 +188,8 @@ def cmd_watch(args: argparse.Namespace) -> None:
 
             # Safe to sync - no recent changes
             logger.info(f"[{iteration}] Checking...")
+            has_local_changes = False
+            marker_refused = False
             try:
                 # Check for local changes first
                 has_local_changes = git_operations.has_changes(git_repo)
@@ -212,59 +214,97 @@ def cmd_watch(args: argparse.Namespace) -> None:
                     asyncio.run(run_commit())
                     logger.info(f"Committed: {commit_msg}")
 
-                # Pull to get remote changes
-                try:
-                    before_pull = git_operations.get_head_commit(git_repo)
-                    if args.strategy == "merge":
-                        git_operations.pull_merge(git_repo)
-                    else:
-                        git_operations.pull_rebase(git_repo)
-                    after_pull = git_operations.get_head_commit(git_repo)
+            except git_operations.MarkerRefusalError as e:
+                # A marker refusal is fatal in watch mode (spec-002) and must still
+                # exit non-zero — but only AFTER the pull below. Exiting here would
+                # let a failed commit suppress a remote operation it has nothing to
+                # do with, which is the exact bug this restructure exists to remove.
+                logger.error(f"Sync failed: {e}")
+                marker_refused = True
 
-                    if before_pull != after_pull:
-                        commit_count = git_operations.get_commit_count(
-                            git_repo, before_pull, after_pull
+            except git_operations.UnsafePathRefusalError as e:
+                # A commit that could not be made must NOT skip the pull: log
+                # loudly (naming the offending paths) and fall through to pull.
+                logger.error(f"Commit refused; pulling anyway: {e}")
+
+            except git_operations.GitError as e:
+                logger.error(f"Sync failed: {e}")
+
+            except Exception as e:
+                logger.exception(f"Unexpected error: {e}")
+                logger.info("Continuing to watch...")
+
+            # Pull to get remote changes — ALWAYS runs, even when the commit above failed.
+            try:
+                before_pull = git_operations.get_head_commit(git_repo)
+                if args.strategy == "merge":
+                    git_operations.pull_merge(git_repo)
+                else:
+                    git_operations.pull_rebase(git_repo)
+                after_pull = git_operations.get_head_commit(git_repo)
+
+                if before_pull != after_pull:
+                    commit_count = git_operations.get_commit_count(
+                        git_repo, before_pull, after_pull
+                    )
+                    commits = git_operations.get_commit_log(git_repo, before_pull, after_pull)
+                    logger.info(f"Pulled {commit_count} commit(s) from remote")
+                    for commit_line in commits[:3]:
+                        logger.info(f"  {commit_line}")
+                    if len(commits) > 3:
+                        logger.info(f"  ... and {len(commits) - 3} more")
+                else:
+                    logger.info("No new commits from remote")
+
+            except git_operations.GitError as e:
+                if "conflicts" in str(e).lower():
+                    logger.error(f"Conflicts detected: {e}")
+                    logger.error(f"Run 'git-ai-sync resolve {git_repo}' to resolve")
+                    sys.exit(1)
+                logger.error(f"Sync failed: {e}")
+                if marker_refused:
+                    # Honour spec-002's non-zero exit even when the pull also failed —
+                    # `continue` here would swallow it and loop silently forever.
+                    sys.exit(1)
+                logger.info("Continuing to watch...")
+                continue
+
+            except Exception as e:
+                logger.exception(f"Unexpected error: {e}")
+                if marker_refused:
+                    # Same reasoning as the GitError sibling above.
+                    sys.exit(1)
+                logger.info("Continuing to watch...")
+                continue
+
+            if marker_refused:
+                # The pull above has run; now honour spec-002's non-zero exit.
+                sys.exit(1)
+
+            if not has_local_changes:
+                if git_operations.is_ahead_of_remote(git_repo):
+                    logger.info("Local branch is ahead of remote, pushing...")
+                    git_operations.push(git_repo)
+                    logger.info("Pushed to remote")
+                    if config.pushgateway_url:
+                        metrics.push_last_success(
+                            config.pushgateway_url,
+                            config.pushgateway_username,
+                            config.pushgateway_password,
+                            git_repo,
                         )
-                        commits = git_operations.get_commit_log(git_repo, before_pull, after_pull)
-                        logger.info(f"Pulled {commit_count} commit(s) from remote")
-                        for commit_line in commits[:3]:
-                            logger.info(f"  {commit_line}")
-                        if len(commits) > 3:
-                            logger.info(f"  ... and {len(commits) - 3} more")
-                    else:
-                        logger.info("No new commits from remote")
+                else:
+                    logger.info("No local changes")
+                    if config.pushgateway_url:
+                        metrics.push_last_success(
+                            config.pushgateway_url,
+                            config.pushgateway_username,
+                            config.pushgateway_password,
+                            git_repo,
+                        )
+                continue
 
-                except git_operations.GitError as e:
-                    if "conflicts" in str(e).lower():
-                        logger.error(f"Conflicts detected: {e}")
-                        logger.error(f"Run 'git-ai-sync resolve {git_repo}' to resolve")
-                        sys.exit(1)
-                    raise
-
-                if not has_local_changes:
-                    if git_operations.is_ahead_of_remote(git_repo):
-                        logger.info("Local branch is ahead of remote, pushing...")
-                        git_operations.push(git_repo)
-                        logger.info("Pushed to remote")
-                        if config.pushgateway_url:
-                            metrics.push_last_success(
-                                config.pushgateway_url,
-                                config.pushgateway_username,
-                                config.pushgateway_password,
-                                git_repo,
-                            )
-                    else:
-                        logger.info("No local changes")
-                        if config.pushgateway_url:
-                            metrics.push_last_success(
-                                config.pushgateway_url,
-                                config.pushgateway_username,
-                                config.pushgateway_password,
-                                git_repo,
-                            )
-                    continue
-
-                # Push to remote
+            try:
                 git_operations.push(git_repo)
                 logger.info("Pushed to remote")
                 if config.pushgateway_url:
@@ -274,11 +314,6 @@ def cmd_watch(args: argparse.Namespace) -> None:
                         config.pushgateway_password,
                         git_repo,
                     )
-
-            except git_operations.MarkerRefusalError as e:
-                logger.error(f"Sync failed: {e}")
-                sys.exit(1)
-
             except git_operations.GitError as e:
                 logger.error(f"Sync failed: {e}")
                 logger.info("Continuing to watch...")
@@ -337,21 +372,38 @@ def cmd_sync(args: argparse.Namespace) -> None:
         logger.error(f"Failed to stage: {e}")
         sys.exit(1)
 
-    # 4. Commit with auto-generated message (with marker-refusal recovery)
+    # 4. Commit with auto-generated message (with marker + unsafe-path recovery)
     commit_msg = git_operations.generate_commit_message(config.commit_prefix)
     logger.info(f"Committing: {commit_msg}")
 
     async def run_commit() -> None:
         await conflict_resolver.commit_with_marker_recovery(git_repo, commit_msg, config.model)
 
+    sync_exit_code = 0
     try:
         asyncio.run(run_commit())
         logger.info("Committed")
+    except git_operations.MarkerRefusalError as e:
+        # Marker refusal is fatal (spec-002): still pull, but exit non-zero.
+        logger.error(f"Failed to commit: {e}")
+        sync_exit_code = 1
+    except git_operations.UnsafePathRefusalError as e:
+        # A commit that could not be made must NOT skip the pull: pull first,
+        # then exit non-zero with the offending paths named.
+        logger.error(f"Failed to commit; pulling anyway: {e}")
+        sync_exit_code = 1
     except git_operations.GitError as e:
         logger.error(f"Failed to commit: {e}")
-        sys.exit(1)
+        sync_exit_code = 1
+    except Exception as e:
+        # A non-GitError from the commit must not skip the pull either. Reachable in
+        # production: claude_code_sdk raises bare Exception inside an anyio task
+        # group, which surfaces as ExceptionGroup — not a GitError, so it passes
+        # through every handler above.
+        logger.exception(f"Unexpected error during commit: {e}")
+        sync_exit_code = 1
 
-    # 5. Pull with strategy
+    # 5. Pull with strategy — ALWAYS runs, even when the commit above failed.
     logger.info(f"Pulling with {args.strategy}...")
     try:
         if args.strategy == "merge":
@@ -375,6 +427,9 @@ def cmd_sync(args: argparse.Namespace) -> None:
     except git_operations.GitError as e:
         logger.error(f"Failed to push: {e}")
         sys.exit(1)
+
+    if sync_exit_code != 0:
+        sys.exit(sync_exit_code)
 
     logger.info(f"Sync completed: {git_repo}")
 

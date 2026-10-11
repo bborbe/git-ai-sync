@@ -9,10 +9,12 @@ import pytest
 from git_ai_sync.git_operations import (
     GitError,
     MarkerRefusalError,
+    UnsafePathRefusalError,
     commit,
     continue_merge,
     find_git_repo,
     generate_commit_message,
+    get_blocked_paths,
     get_changed_files_short,
     get_commit_count,
     get_commit_log,
@@ -25,14 +27,34 @@ from git_ai_sync.git_operations import (
     is_in_merge,
     is_in_rebase,
     is_marker_refusal,
+    is_unsafe_path_refusal,
     pull_merge,
     pull_rebase,
     push,
+    sanitize_path,
     stage_all,
     stage_file,
+    unstage_paths,
 )
 
 REPO = Path("/fake/repo")
+
+BLOCKED_STDERR = (
+    "\n"
+    "✋ Blocked: staged path is not safe on Windows\n"
+    "\n"
+    '     unsafe?.md  —  contains one of  : ? * " < > |\n'
+    "\n"
+    '   Windows rejects these characters in a path component: : ? * " < > |\n'
+    "   It also rejects a component ending in a dot or a space, and a name\n"
+    "   whose stem is a reserved device: CON PRN AUX NUL COM1-9 LPT1-9.\n"
+)
+
+TWO_PATH_STDERR = BLOCKED_STDERR.replace(
+    '     unsafe?.md  —  contains one of  : ? * " < > |\n',
+    '     unsafe?.md  —  contains one of  : ? * " < > |\n'
+    '     bad:name.md  —  contains one of  : ? * " < > |\n',
+)
 
 
 def _mock_result(
@@ -139,6 +161,19 @@ class TestStageFile:
             pytest.raises(GitError),
         ):
             stage_file(REPO, "file.txt")
+
+
+def test_unstage_paths() -> None:
+    with patch("subprocess.run", return_value=_mock_result()) as mock:
+        unstage_paths(REPO, ["a.md", "b.md"])
+        mock.assert_called_once()
+        assert mock.call_args[0][0] == ["git", "reset", "--", "a.md", "b.md"]
+
+
+def test_unstage_paths_empty_is_noop() -> None:
+    with patch("subprocess.run", return_value=_mock_result()) as mock:
+        unstage_paths(REPO, [])
+        mock.assert_not_called()
 
 
 class TestContinueRebase:
@@ -482,3 +517,60 @@ def test_commit_raises_generic_error_for_non_marker() -> None:
 def test_marker_refusal_error_is_git_error() -> None:
     """MarkerRefusalError subclasses GitError so existing handlers keep working."""
     assert issubclass(MarkerRefusalError, GitError)
+
+
+def test_unsafe_path_refusal() -> None:
+    """Classify the hook's unsafe-path refusal and keep the two classes disjoint."""
+    assert is_unsafe_path_refusal(BLOCKED_STDERR) is True
+    assert is_unsafe_path_refusal("✋ Blocked: STAGED PATH IS NOT SAFE ON WINDOWS") is True
+    assert is_unsafe_path_refusal("Failed to commit: index.lock exists") is False
+    # Disjoint from the marker-refusal classification, in both directions.
+    assert (
+        is_unsafe_path_refusal(
+            "✋ Refusing commit: staged changes contain git merge conflict markers"
+        )
+        is False
+    )
+    assert is_marker_refusal(BLOCKED_STDERR) is False
+
+
+def test_blocked_paths() -> None:
+    """Extract offending paths from the hook's indented block, never from trailing prose."""
+    assert get_blocked_paths(BLOCKED_STDERR) == ["unsafe?.md"]
+    assert get_blocked_paths(TWO_PATH_STDERR) == ["unsafe?.md", "bad:name.md"]
+    assert get_blocked_paths("Failed to commit: index.lock exists") == []
+    assert get_blocked_paths("") == []
+    for blocked in get_blocked_paths(BLOCKED_STDERR) + get_blocked_paths(TWO_PATH_STDERR):
+        assert "Windows rejects" not in blocked
+        assert "notesmd-cli" not in blocked
+
+
+def test_sanitize_path() -> None:
+    """Apply the fixed Windows-safe rule set per path component."""
+    assert sanitize_path("a?b") == "a-b"
+    assert sanitize_path("a???b") == "a-b"
+    assert sanitize_path("-a-") == "a"
+    assert sanitize_path("a.") == "a"
+    assert sanitize_path("a ") == "a"
+    assert sanitize_path("CON.md") == "CON_.md"
+    assert sanitize_path("con.md") == "con_.md"
+    assert sanitize_path("???.md") == "untitled.md"
+    assert sanitize_path("a?.md", {"a.md"}) == "a-2.md"
+    assert sanitize_path("notes/a?b.md") == "notes/a-b.md"
+
+
+def test_commit_raises_unsafe_path_refusal() -> None:
+    """Classify the hook's unsafe-path refusal message as UnsafePathRefusalError."""
+    with (
+        patch(
+            "subprocess.run",
+            return_value=_mock_result(returncode=1, stderr=BLOCKED_STDERR),
+        ),
+        pytest.raises(UnsafePathRefusalError),
+    ):
+        commit(REPO, "msg")
+
+
+def test_unsafe_path_refusal_error_is_git_error() -> None:
+    """UnsafePathRefusalError subclasses GitError so existing handlers keep working."""
+    assert issubclass(UnsafePathRefusalError, GitError)

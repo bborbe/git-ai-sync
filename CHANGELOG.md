@@ -8,6 +8,13 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 * MINOR version when you add functionality in a backwards-compatible manner, and
 * PATCH version when you make backwards-compatible bug fixes.
 
+## Unreleased
+
+- fix: Classify a pre-commit-hook refusal over a staged path that is not safe on Windows — add `UnsafePathRefusalError`, `is_unsafe_path_refusal()`, `get_blocked_paths()`, and `sanitize_path()` so the offending paths can be renamed to Windows-safe names (recovery wiring lands in a later prompt)
+- fix: Auto-recover when the pre-commit hook refuses a commit over a path that is not safe on Windows — rename each offending path to a Windows-safe name, re-stage, and retry up to 3 attempts; on exhaustion unstage the offending paths and raise with every still-offending path named
+- fix: Never skip the pull when a commit is refused — in watch and sync, a commit failure (unsafe path or conflict marker) no longer suppresses the pull, so the local checkout can no longer silently fall behind `origin`; sync pulls then exits non-zero only when the refusal was unrecoverable, and watch continues to the next interval
+- test: Lock the conflict-marker recovery path against the unsafe-path recovery — `test_commit_with_marker_recovery_marker_path_unchanged` drives a marker refusal through `commit_with_marker_recovery` and asserts the AI resolver runs while `_recover_unsafe_paths` and `get_blocked_paths` are never touched, proving the two refusal classes stay disjoint
+
 ## v0.12.1
 
 - docs: Remove the dark-factory approval gate from this repo's `CLAUDE.md`. It contradicted the global `execution-phase-no-reask` carve-out and would have stopped every spec and prompt approval.
