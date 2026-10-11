@@ -126,7 +126,7 @@ def cmd_watch(args: argparse.Namespace) -> None:
     import time
     from pathlib import Path
 
-    from git_ai_sync import conflict_resolver, git_operations, metrics
+    from git_ai_sync import conflict_resolver, git_operations, metrics, notifier
     from git_ai_sync.config import Config
     from git_ai_sync.file_watcher import ChangeTracker
 
@@ -135,6 +135,10 @@ def cmd_watch(args: argparse.Namespace) -> None:
     interval = float(args.interval)
 
     logger.info(f"Starting watch mode: path={repo_path}, interval={interval}s")
+
+    if config.stall_threshold < 2:
+        logger.error(f"GIT_AI_SYNC_STALL_THRESHOLD must be >= 2 (got {config.stall_threshold})")
+        sys.exit(1)
 
     # Validate git repository once at startup
     git_repo = git_operations.find_git_repo(repo_path)
@@ -158,6 +162,10 @@ def cmd_watch(args: argparse.Namespace) -> None:
         logger.info(f"Pushgateway metrics enabled: {config.pushgateway_url}")
     else:
         logger.warning("pushgateway metrics disabled — set GIT_AI_SYNC_PUSHGATEWAY_URL")
+
+    attention_script = notifier.validate_attention_script(config.attention_script)
+    stall_tracker = notifier.ConsecutiveFailureTracker()
+    vault = metrics.vault_label(git_repo)
 
     # Start filesystem watcher to track changes
     tracker = ChangeTracker(git_repo)
@@ -184,12 +192,15 @@ def cmd_watch(args: argparse.Namespace) -> None:
                     f"[{iteration}] Skipping - files changed"
                     f" {seconds_since_change:.1f}s ago (still editing)"
                 )
+                stall_tracker.record_skip()
                 continue
 
             # Safe to sync - no recent changes
             logger.info(f"[{iteration}] Checking...")
             has_local_changes = False
             marker_refused = False
+            cycle_failed = False
+            last_error = ""
             try:
                 # Check for local changes first
                 has_local_changes = git_operations.has_changes(git_repo)
@@ -226,15 +237,22 @@ def cmd_watch(args: argparse.Namespace) -> None:
                 # A commit that could not be made must NOT skip the pull: log
                 # loudly (naming the offending paths) and fall through to pull.
                 logger.error(f"Commit refused; pulling anyway: {e}")
+                cycle_failed = True
+                last_error = str(e)
 
             except git_operations.GitError as e:
                 logger.error(f"Sync failed: {e}")
+                cycle_failed = True
+                last_error = str(e)
 
             except Exception as e:
                 logger.exception(f"Unexpected error: {e}")
                 logger.info("Continuing to watch...")
+                cycle_failed = True
+                last_error = str(e)
 
             # Pull to get remote changes — ALWAYS runs, even when the commit above failed.
+            pull_failed = False
             try:
                 before_pull = git_operations.get_head_commit(git_repo)
                 if args.strategy == "merge":
@@ -267,7 +285,9 @@ def cmd_watch(args: argparse.Namespace) -> None:
                     # `continue` here would swallow it and loop silently forever.
                     sys.exit(1)
                 logger.info("Continuing to watch...")
-                continue
+                pull_failed = True
+                cycle_failed = True
+                last_error = str(e)
 
             except Exception as e:
                 logger.exception(f"Unexpected error: {e}")
@@ -275,52 +295,81 @@ def cmd_watch(args: argparse.Namespace) -> None:
                     # Same reasoning as the GitError sibling above.
                     sys.exit(1)
                 logger.info("Continuing to watch...")
-                continue
+                pull_failed = True
+                cycle_failed = True
+                last_error = str(e)
 
             if marker_refused:
                 # The pull above has run; now honour spec-002's non-zero exit.
                 sys.exit(1)
 
-            if not has_local_changes:
-                if git_operations.is_ahead_of_remote(git_repo):
-                    logger.info("Local branch is ahead of remote, pushing...")
-                    git_operations.push(git_repo)
-                    logger.info("Pushed to remote")
-                    if config.pushgateway_url:
-                        metrics.push_last_success(
-                            config.pushgateway_url,
-                            config.pushgateway_username,
-                            config.pushgateway_password,
-                            git_repo,
-                        )
+            if not pull_failed:
+                if not has_local_changes:
+                    if git_operations.is_ahead_of_remote(git_repo):
+                        logger.info("Local branch is ahead of remote, pushing...")
+                        git_operations.push(git_repo)
+                        logger.info("Pushed to remote")
+                        if config.pushgateway_url:
+                            metrics.push_last_success(
+                                config.pushgateway_url,
+                                config.pushgateway_username,
+                                config.pushgateway_password,
+                                git_repo,
+                            )
+                    else:
+                        logger.info("No local changes")
+                        if config.pushgateway_url:
+                            metrics.push_last_success(
+                                config.pushgateway_url,
+                                config.pushgateway_username,
+                                config.pushgateway_password,
+                                git_repo,
+                            )
                 else:
-                    logger.info("No local changes")
-                    if config.pushgateway_url:
-                        metrics.push_last_success(
-                            config.pushgateway_url,
-                            config.pushgateway_username,
-                            config.pushgateway_password,
-                            git_repo,
-                        )
-                continue
+                    try:
+                        git_operations.push(git_repo)
+                        logger.info("Pushed to remote")
+                        if config.pushgateway_url:
+                            metrics.push_last_success(
+                                config.pushgateway_url,
+                                config.pushgateway_username,
+                                config.pushgateway_password,
+                                git_repo,
+                            )
+                    except git_operations.GitError as e:
+                        logger.error(f"Sync failed: {e}")
+                        logger.info("Continuing to watch...")
+                        cycle_failed = True
+                        last_error = str(e)
 
-            try:
-                git_operations.push(git_repo)
-                logger.info("Pushed to remote")
-                if config.pushgateway_url:
-                    metrics.push_last_success(
-                        config.pushgateway_url,
-                        config.pushgateway_username,
-                        config.pushgateway_password,
+                    except Exception as e:
+                        logger.exception(f"Unexpected error: {e}")
+                        logger.info("Continuing to watch...")
+                        cycle_failed = True
+                        last_error = str(e)
+
+            # Classify the cycle exactly once: failure, or success.
+            if cycle_failed:
+                stall_tracker.record_failure()
+                if attention_script is not None and notifier.should_post_card(
+                    stall_tracker.consecutive_failures,
+                    config.stall_threshold,
+                    stall_tracker.outstanding_item_id,
+                ):
+                    stall_tracker.outstanding_item_id = notifier.post_stall_card(
+                        attention_script,
+                        vault,
                         git_repo,
+                        stall_tracker.consecutive_failures,
+                        stall_tracker.first_failure_at,
+                        last_error,
                     )
-            except git_operations.GitError as e:
-                logger.error(f"Sync failed: {e}")
-                logger.info("Continuing to watch...")
-
-            except Exception as e:
-                logger.exception(f"Unexpected error: {e}")
-                logger.info("Continuing to watch...")
+            else:
+                if stall_tracker.outstanding_item_id is not None:
+                    notifier.close_stall_card(
+                        config.attention_store_url, stall_tracker.outstanding_item_id
+                    )
+                stall_tracker.record_success()
 
     finally:
         tracker.stop()

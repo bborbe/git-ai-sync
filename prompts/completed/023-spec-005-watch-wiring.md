@@ -1,8 +1,13 @@
 ---
-status: approved
+status: completed
 spec: [005-consecutive-failure-attention-alert]
+summary: Wired notifier.ConsecutiveFailureTracker and the stall-card notifier into cmd_watch with once-per-cycle failure/success/skip classification, added 16 loop-level tests (incl. a real throwaway-clone integration run), updated the existing watch tests' Config mocks, and appended the CHANGELOG bullet
+execution_id: git-ai-sync-exec-023-spec-005-watch-wiring
+dark-factory-version: v0.196.0
 created: "2026-10-11T16:26:06Z"
 queued: "2026-10-11T18:27:07Z"
+started: "2026-10-11T18:32:21Z"
+completed: "2026-10-11T18:38:41Z"
 ---
 
 # Wire the stall tracker and notifier into the watch loop
