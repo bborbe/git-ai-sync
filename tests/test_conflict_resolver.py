@@ -465,6 +465,32 @@ async def test_commit_with_marker_recovery_no_flagged_files(temp_dir: Path) -> N
     mock_resolver.assert_not_awaited()
 
 
+async def test_commit_with_marker_recovery_marker_path_unchanged(temp_dir: Path) -> None:
+    """A marker refusal takes the marker recovery path and never the unsafe-path one."""
+    mock_git = _marker_git_ops()
+    mock_git.commit.side_effect = [MarkerRefusalError("refused"), None]
+    mock_git.get_marker_flagged_files.return_value = ["conflict.md"]
+    with (
+        patch("git_ai_sync.conflict_resolver.git_operations", mock_git),
+        patch(
+            "git_ai_sync.conflict_resolver.resolve_marker_flagged_files",
+            new_callable=AsyncMock,
+        ) as mock_resolver,
+        patch("git_ai_sync.conflict_resolver._recover_unsafe_paths") as mock_recover,
+    ):
+        await commit_with_marker_recovery(temp_dir, "msg")
+
+    assert mock_git.commit.call_count == 2
+    mock_git.get_marker_flagged_files.assert_called_once()
+    mock_resolver.assert_awaited_once()
+    args = mock_resolver.await_args.args
+    assert args[0] == temp_dir
+    assert args[1] == ["conflict.md"]
+
+    mock_recover.assert_not_called()
+    mock_git.get_blocked_paths.assert_not_called()
+
+
 def _init_repo(tmp_path: Path) -> None:
     """Initialise a throwaway git repo with hooks disabled."""
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)

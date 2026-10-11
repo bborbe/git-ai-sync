@@ -1,8 +1,13 @@
 ---
-status: approved
+status: completed
 spec: [004-bug-unsafe-path-refusal-skips-pull]
+summary: Added test_commit_with_marker_recovery_marker_path_unchanged to lock the conflict-marker recovery path against the unsafe-path recovery path
+execution_id: git-ai-sync-exec-020-spec-004-marker-path-regression-lock
+dark-factory-version: v0.196.0
 created: "2026-10-11T14:30:00Z"
 queued: "2026-10-11T12:54:21Z"
+started: "2026-10-11T13:10:55Z"
+completed: "2026-10-11T13:12:07Z"
 ---
 
 <summary>
