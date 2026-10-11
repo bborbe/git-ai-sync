@@ -1,5 +1,6 @@
 """Git operations for sync and conflict resolution."""
 
+import re
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
@@ -13,6 +14,12 @@ class GitError(Exception):
 
 class MarkerRefusalError(GitError):
     """Commit refused by the pre-commit hook because staged content contains conflict markers."""
+
+    pass
+
+
+class UnsafePathRefusalError(GitError):
+    """Commit refused by the pre-commit hook because a staged path is not safe on Windows."""
 
     pass
 
@@ -89,6 +96,8 @@ def commit(repo_path: Path, message: str) -> None:
         message: Commit message
 
     Raises:
+        UnsafePathRefusalError: If the pre-commit hook refuses the commit because
+            a staged path is not safe on Windows
         MarkerRefusalError: If the pre-commit hook refuses the commit because
             staged content contains conflict markers
         GitError: If commit fails
@@ -102,6 +111,8 @@ def commit(repo_path: Path, message: str) -> None:
     )
 
     if result.returncode != 0:
+        if is_unsafe_path_refusal(result.stderr):
+            raise UnsafePathRefusalError(f"Failed to commit: {result.stderr}")
         if is_marker_refusal(result.stderr):
             raise MarkerRefusalError(f"Failed to commit: {result.stderr}")
         raise GitError(f"Failed to commit: {result.stderr}")
@@ -118,6 +129,87 @@ def is_marker_refusal(message: str) -> bool:
     """
     lowered = message.lower()
     return "refusing commit" in lowered or "conflict markers" in lowered
+
+
+def is_unsafe_path_refusal(message: str) -> bool:
+    """Check whether an error message matches the pre-commit hook's unsafe-path refusal signature.
+
+    Args:
+        message: Error message text (typically git stderr)
+
+    Returns:
+        True if the message contains "staged path is not safe on Windows" (case-insensitive)
+    """
+    return "staged path is not safe on windows" in message.lower()
+
+
+_BLOCKED_PATH_RE = re.compile(r"^[ \t]+(?P<path>.+?)\s{2}—\s{2}(?P<reason>.+)$", re.MULTILINE)
+
+
+def get_blocked_paths(message: str) -> list[str]:
+    """Extract the offending paths from the pre-commit hook's unsafe-path refusal block.
+
+    Args:
+        message: Error message text (typically git stderr)
+
+    Returns:
+        List of offending paths named in the hook's indented block, or an empty list
+    """
+    return [match.group("path") for match in _BLOCKED_PATH_RE.finditer(message)]
+
+
+_UNSAFE_CHARS = ':?*"<>|'
+_RESERVED_DEVICES = frozenset(
+    {
+        "CON",
+        "PRN",
+        "AUX",
+        "NUL",
+        *(f"COM{i}" for i in range(1, 10)),
+        *(f"LPT{i}" for i in range(1, 10)),
+    }
+)
+
+
+def _sanitize_component(component: str) -> str:
+    """Sanitize a single path component into a Windows-safe name."""
+    cleaned = "".join("-" if ch in _UNSAFE_CHARS else ch for ch in component)
+    while "--" in cleaned:
+        cleaned = cleaned.replace("--", "-")
+    cleaned = cleaned.rstrip(". ")
+    stem, dot, ext = cleaned.rpartition(".")
+    if not dot:
+        stem, dot, ext = cleaned, "", ""
+    stem = stem.strip("-")
+    if not stem:
+        return f"untitled{dot}{ext}"
+    if stem.upper() in _RESERVED_DEVICES:
+        stem = f"{stem}_"
+    return f"{stem}{dot}{ext}"
+
+
+def sanitize_path(path: str, existing: set[str] | None = None) -> str:
+    """Rename an unsafe path to a Windows-safe one, disambiguating a collision.
+
+    Args:
+        path: Relative path whose components are sanitized
+        existing: Optional set of already-taken paths; a collision gets a numeric suffix
+
+    Returns:
+        A Windows-safe path, suffixed with "-2", "-3", ... when it collides with ``existing``
+    """
+    sanitized = "/".join(_sanitize_component(part) for part in path.split("/"))
+    if not existing or sanitized not in existing:
+        return sanitized
+    stem, dot, ext = sanitized.rpartition(".")
+    if not dot:
+        stem, dot, ext = sanitized, "", ""
+    counter = 2
+    candidate = f"{stem}-{counter}{dot}{ext}"
+    while candidate in existing:
+        counter += 1
+        candidate = f"{stem}-{counter}{dot}{ext}"
+    return candidate
 
 
 def get_marker_flagged_files(repo_path: Path) -> list[str]:
