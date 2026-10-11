@@ -263,11 +263,17 @@ def cmd_watch(args: argparse.Namespace) -> None:
                     sys.exit(1)
                 logger.error(f"Sync failed: {e}")
                 logger.info("Continuing to watch...")
+                if marker_refused:
+                    # Honour spec-002's non-zero exit even when the pull also failed —
+                    # `continue` here would swallow it and loop silently forever.
+                    sys.exit(1)
                 continue
 
             except Exception as e:
                 logger.exception(f"Unexpected error: {e}")
                 logger.info("Continuing to watch...")
+                if marker_refused:
+                    sys.exit(1)
                 continue
 
             if marker_refused:
