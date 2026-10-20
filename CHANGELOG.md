@@ -8,7 +8,7 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 * MINOR version when you add functionality in a backwards-compatible manner, and
 * PATCH version when you make backwards-compatible bug fixes.
 
-## Unreleased
+## v0.13.1
 
 - fix: Refuse a conflict resolution whose Claude call errored or failed to authenticate, or that would drop a markdown file's frontmatter, so a failed resolution can no longer overwrite the conflicted file and get committed as resolved
 
