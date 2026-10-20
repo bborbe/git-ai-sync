@@ -10,6 +10,7 @@ from claude_code_sdk import (
     ClaudeCodeOptions,
     ClaudeSDKClient,
     ClaudeSDKError,
+    ResultMessage,
     TextBlock,
 )
 from claude_code_sdk._errors import MessageParseError
@@ -171,6 +172,7 @@ Return ONLY the file content, no explanations, no markdown code blocks.
     options = ClaudeCodeOptions(model=model)
 
     response_text = ""
+    result_message: ResultMessage | None = None
     try:
         async with ClaudeSDKClient(options=options) as client:
             await client.query(prompt)
@@ -180,9 +182,23 @@ Return ONLY the file content, no explanations, no markdown code blocks.
                     for block in message.content:
                         if isinstance(block, TextBlock):
                             response_text += block.text
+                elif isinstance(message, ResultMessage):
+                    result_message = message
 
     except ClaudeSDKError as e:
         raise ConflictError(f"Claude API call failed: {e}") from e
+
+    if result_message is not None and result_message.is_error:
+        detail = f" (subtype: {result_message.subtype})"
+        if result_message.result:
+            detail += f": {result_message.result}"
+        raise ConflictError(f"Claude failed to resolve {file_path}{detail}")
+
+    result_text = getattr(result_message, "result", None) if result_message is not None else None
+    if "Failed to authenticate" in response_text or (
+        result_text is not None and "Failed to authenticate" in result_text
+    ):
+        raise ConflictError(f"Claude failed to authenticate while resolving {file_path}")
 
     if not response_text:
         raise ConflictError("Claude returned empty response")
@@ -197,6 +213,11 @@ Return ONLY the file content, no explanations, no markdown code blocks.
         if lines and lines[-1].startswith("```"):
             lines = lines[:-1]
         resolved = "\n".join(lines)
+
+    if file_path.endswith(".md") and content.startswith("---") and not resolved.startswith("---"):
+        raise ConflictError(
+            f"Resolution of {file_path} dropped its markdown frontmatter; refusing to write"
+        )
 
     logger.info(f"Resolved {file_path}")
     return resolved

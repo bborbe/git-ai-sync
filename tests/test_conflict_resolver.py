@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from claude_code_sdk import ClaudeSDKError
+from claude_code_sdk import AssistantMessage, ClaudeSDKError, ResultMessage, TextBlock
 
 from git_ai_sync.conflict_resolver import (
     ConflictError,
@@ -25,6 +25,19 @@ from git_ai_sync.git_operations import (
 )
 
 CONFLICT_CONTENT = """\
+some text before
+<<<<<<< HEAD
+our line
+=======
+their line
+>>>>>>> branch
+some text after
+"""
+
+FRONTMATTER_CONFLICT_CONTENT = """\
+---
+title: test
+---
 some text before
 <<<<<<< HEAD
 our line
@@ -157,6 +170,37 @@ def _mock_claude_client_skipping_first(skipped: object, response_text: str) -> M
     return mock_client_cls
 
 
+def _mock_claude_client_yielding(messages: list[object]) -> MagicMock:
+    """Create a mock ClaudeSDKClient that yields the given messages in order."""
+    mock_client = AsyncMock()
+    mock_client.query = AsyncMock()
+    mock_client.receive_response = MagicMock(return_value=_AsyncIter(messages))
+
+    mock_client_cls = MagicMock()
+    mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+
+    return mock_client_cls
+
+
+def _assistant_message(text: str) -> AssistantMessage:
+    """Build a real AssistantMessage carrying a single text block."""
+    return AssistantMessage(content=[TextBlock(text=text)], model="test-model")
+
+
+def _error_result_message(result: str | None = None) -> ResultMessage:
+    """Build a real error ResultMessage as the CLI emits on a failed call."""
+    return ResultMessage(
+        subtype="error_during_execution",
+        duration_ms=1,
+        duration_api_ms=1,
+        is_error=True,
+        num_turns=1,
+        session_id="test-session",
+        result=result,
+    )
+
+
 def _rate_limit_event_mock() -> MagicMock:
     """Create a mock non-assistant message shaped like the CLI's rate_limit_event."""
     event = MagicMock()
@@ -178,6 +222,29 @@ class TestParseMessageTolerance:
         from claude_code_sdk._internal import message_parser as _message_parser
 
         assert _message_parser.parse_message is _parse_message_tolerant
+
+    def test_parses_error_result_message(self) -> None:
+        payload = {
+            "type": "result",
+            "subtype": "error_during_execution",
+            "duration_ms": 5,
+            "duration_api_ms": 4,
+            "is_error": True,
+            "num_turns": 2,
+            "session_id": "sess",
+            "total_cost_usd": 0.01,
+            "usage": {"input_tokens": 1},
+            "result": "boom",
+        }
+
+        parsed = _parse_message_tolerant(payload)
+
+        assert isinstance(parsed, ResultMessage)
+        assert parsed.subtype == "error_during_execution"
+        assert parsed.is_error is True
+        assert parsed.num_turns == 2
+        assert parsed.session_id == "sess"
+        assert parsed.result == "boom"
 
 
 class TestResolveConflictWithClaude:
@@ -223,6 +290,47 @@ class TestResolveConflictWithClaude:
             pytest.raises(ConflictError, match="Claude API call failed"),
         ):
             await resolve_conflict_with_claude("file.md", CONFLICT_CONTENT)
+
+    async def test_raises_on_error_result_message(self) -> None:
+        mock_cls = _mock_claude_client_yielding([_error_result_message()])
+        with (
+            patch("git_ai_sync.conflict_resolver.ClaudeSDKClient", mock_cls),
+            pytest.raises(ConflictError, match="error_during_execution"),
+        ):
+            await resolve_conflict_with_claude("file.md", CONFLICT_CONTENT)
+
+    async def test_error_result_message_includes_result_text(self) -> None:
+        mock_cls = _mock_claude_client_yielding([_error_result_message("boom")])
+        with (
+            patch("git_ai_sync.conflict_resolver.ClaudeSDKClient", mock_cls),
+            pytest.raises(ConflictError, match=r"error_during_execution.*boom"),
+        ):
+            await resolve_conflict_with_claude("file.md", CONFLICT_CONTENT)
+
+    async def test_raises_on_auth_failure_in_assistant_text(self) -> None:
+        mock_cls = _mock_claude_client_yielding(
+            [_assistant_message("Failed to authenticate. API Error: 401 Invalid bearer token")]
+        )
+        with (
+            patch("git_ai_sync.conflict_resolver.ClaudeSDKClient", mock_cls),
+            pytest.raises(ConflictError, match="failed to authenticate"),
+        ):
+            await resolve_conflict_with_claude("file.md", CONFLICT_CONTENT)
+
+    async def test_raises_when_markdown_frontmatter_dropped(self) -> None:
+        mock_cls = _mock_claude_client_yielding([_assistant_message("resolved body")])
+        with (
+            patch("git_ai_sync.conflict_resolver.ClaudeSDKClient", mock_cls),
+            pytest.raises(ConflictError, match=r"file\.md.*frontmatter"),
+        ):
+            await resolve_conflict_with_claude("file.md", FRONTMATTER_CONFLICT_CONTENT)
+
+    async def test_keeps_markdown_frontmatter(self) -> None:
+        resolved = "---\ntitle: test\n---\nresolved body"
+        mock_cls = _mock_claude_client_yielding([_assistant_message(resolved)])
+        with patch("git_ai_sync.conflict_resolver.ClaudeSDKClient", mock_cls):
+            result = await resolve_conflict_with_claude("file.md", FRONTMATTER_CONFLICT_CONTENT)
+        assert result == resolved
 
 
 class TestResolveAllConflicts:
@@ -276,6 +384,62 @@ class TestResolveAllConflicts:
             count, failed = await resolve_all_conflicts(temp_dir)
             assert count == 0
             assert failed == ["file.md"]
+
+    async def test_leaves_file_unmerged_when_claude_errors(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A failed Claude call must not overwrite or stage the conflicted file."""
+        _init_repo(tmp_path)
+        path = tmp_path / "conflict.md"
+        path.write_text("base\n", encoding="utf-8")
+        subprocess.run(["git", "add", "conflict.md"], cwd=tmp_path, check=True)
+        subprocess.run(["git", "commit", "-q", "-m", "base"], cwd=tmp_path, check=True)
+
+        default_branch = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+
+        subprocess.run(["git", "checkout", "-q", "-b", "other"], cwd=tmp_path, check=True)
+        path.write_text("theirs\n", encoding="utf-8")
+        subprocess.run(["git", "commit", "-q", "-am", "theirs"], cwd=tmp_path, check=True)
+        subprocess.run(["git", "checkout", "-q", default_branch], cwd=tmp_path, check=True)
+        path.write_text("ours\n", encoding="utf-8")
+        subprocess.run(["git", "commit", "-q", "-am", "ours"], cwd=tmp_path, check=True)
+
+        merge = subprocess.run(["git", "merge", "other"], cwd=tmp_path, check=False)
+        assert merge.returncode != 0, "merge should conflict"
+
+        conflicted = path.read_bytes()
+        assert b"<<<<<<<" in conflicted
+
+        mock_cls = _mock_claude_client_yielding([_error_result_message()])
+        with (
+            patch("git_ai_sync.conflict_resolver.ClaudeSDKClient", mock_cls),
+            caplog.at_level("ERROR"),
+        ):
+            count, failed = await resolve_all_conflicts(tmp_path)
+
+        assert count == 0
+        assert failed == ["conflict.md"]
+        assert path.read_bytes() == conflicted
+
+        unmerged = subprocess.run(
+            ["git", "diff", "--name-only", "--diff-filter=U"],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        assert "conflict.md" in unmerged
+
+        assert any(
+            record.levelname == "ERROR" and "Failed to resolve conflict.md:" in record.getMessage()
+            for record in caplog.records
+        )
 
 
 class TestDoContinueRebase:

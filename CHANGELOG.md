@@ -8,6 +8,10 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 * MINOR version when you add functionality in a backwards-compatible manner, and
 * PATCH version when you make backwards-compatible bug fixes.
 
+## Unreleased
+
+- fix: Refuse a conflict resolution whose Claude call errored or failed to authenticate, or that would drop a markdown file's frontmatter, so a failed resolution can no longer overwrite the conflicted file and get committed as resolved
+
 ## v0.13.0
 
 - feat: Post one operator attention card when a vault's watch loop has failed a configurable number of consecutive cycles, and close it on the next success — a best-effort side channel that never breaks a sync cycle
