@@ -1,12 +1,12 @@
 ---
-status: committing
+status: completed
 summary: Made conflict resolution fail closed by refusing error/auth-failed Claude results and resolutions that drop markdown frontmatter, with tests covering each refusal and the real-repo seam
 execution_id: git-ai-sync-auth-refusal-exec-025-resolver-refuses-failed-resolution
 dark-factory-version: v0.198.7
 created: "2026-10-20T06:29:17Z"
 queued: "2026-10-20T06:29:17Z"
 started: "2026-10-20T06:29:19Z"
-completed: "2026-10-20T06:31:02Z"
+completed: "2026-10-20T06:31:15Z"
 ---
 
 # Refuse to write a conflicted file when the Claude call fails
