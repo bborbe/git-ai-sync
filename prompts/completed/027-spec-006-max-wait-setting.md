@@ -1,8 +1,13 @@
 ---
-status: approved
+status: completed
 spec: [006-watch-quiet-window-decay]
+summary: Added the max_wait setting (GIT_AI_SYNC_MAX_WAIT, default 300), passed it through the launchd allowlist, documented the decaying debounce across README/CLAUDE/launchd docs, added a changelog bullet, and covered the setting and passthrough with tests
+execution_id: git-ai-sync-exec-027-spec-006-max-wait-setting
+dark-factory-version: v0.198.7
 created: "2026-10-23T16:00:34Z"
 queued: "2026-10-23T16:09:35Z"
+started: "2026-10-23T16:12:00Z"
+completed: "2026-10-23T16:14:10Z"
 ---
 
 # Declare the maximum-wait setting, pass it to a launchd-managed vault, and document the debounce

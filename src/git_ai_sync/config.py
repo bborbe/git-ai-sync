@@ -37,6 +37,15 @@ class Config(BaseSettings):
     interval: int = Field(default=30, description="Sync interval in seconds")
     commit_prefix: str = Field(default="auto", description="Auto-commit message prefix")
 
+    # Watch debounce bound (watch mode only)
+    max_wait: int = Field(
+        default=300,
+        description=(
+            "Maximum seconds without a successful watch sync before one is forced"
+            " regardless of how recently files changed (GIT_AI_SYNC_MAX_WAIT)"
+        ),
+    )
+
     # Claude settings (for future conflict resolution)
     anthropic_api_key: str | None = Field(
         default=None,

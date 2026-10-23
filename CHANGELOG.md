@@ -8,6 +8,10 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 * MINOR version when you add functionality in a backwards-compatible manner, and
 * PATCH version when you make backwards-compatible bug fixes.
 
+## Unreleased
+
+- feat: Bound the watch debounce — halve the required quiet window on every consecutive skipped cycle and force a sync once `GIT_AI_SYNC_MAX_WAIT` (default 300 s) has elapsed since the last success, so a vault written continuously still commits and pulls within `max_wait + interval`
+
 ## v0.13.1
 
 - fix: Refuse a conflict resolution whose Claude call errored or failed to authenticate, or that would drop a markdown file's frontmatter, so a failed resolution can no longer overwrite the conflicted file and get committed as resolved
