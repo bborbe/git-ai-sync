@@ -80,7 +80,7 @@ The command always generates the same frozen plist — this is the contract, and
 - **StandardOutPath / StandardErrorPath**: `/tmp/git-ai-sync-<label>.log`
 - **SoftResourceLimits**: `NumberOfFiles` 1024, `ResidentSetSize` 536870912 (512 MB)
 - **HardResourceLimits**: `NumberOfFiles` 2048, `ResidentSetSize` 1073741824 (1 GB)
-- **EnvironmentVariables**: `GIT_AI_SYNC_PUSHGATEWAY_URL`, `GIT_AI_SYNC_PUSHGATEWAY_USERNAME`, `GIT_AI_SYNC_PUSHGATEWAY_PASSWORD`, `GIT_AI_SYNC_STALL_THRESHOLD`, `GIT_AI_SYNC_ATTENTION_SCRIPT`, `ATTENTION_STORE_URL` — each is passed through only if it was set when `setup-launchd` ran. `ATTENTION_STORE_URL` deliberately has no `GIT_AI_SYNC_` prefix because the posting script reads that same name
+- **EnvironmentVariables**: `GIT_AI_SYNC_PUSHGATEWAY_URL`, `GIT_AI_SYNC_PUSHGATEWAY_USERNAME`, `GIT_AI_SYNC_PUSHGATEWAY_PASSWORD`, `GIT_AI_SYNC_MAX_WAIT`, `GIT_AI_SYNC_STALL_THRESHOLD`, `GIT_AI_SYNC_ATTENTION_SCRIPT`, `ATTENTION_STORE_URL` — each is passed through only if it was set when `setup-launchd` ran. `ATTENTION_STORE_URL` deliberately has no `GIT_AI_SYNC_` prefix because the posting script reads that same name
 
 ## 2. Repeat for each repository
 

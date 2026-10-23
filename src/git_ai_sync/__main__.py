@@ -5,6 +5,7 @@ import logging
 import os
 import signal
 import sys
+from collections.abc import Callable
 from typing import NoReturn
 
 from git_ai_sync import __version__
@@ -120,21 +121,37 @@ def setup_signal_handlers() -> None:
     signal.signal(signal.SIGINT, handle_signal)
 
 
-def cmd_watch(args: argparse.Namespace) -> None:
-    """Start watching and syncing with debounce-gated polling."""
+def cmd_watch(args: argparse.Namespace, *, clock: Callable[[], float] | None = None) -> None:
+    """Start watching and syncing with debounce-gated polling.
+
+    Args:
+        args: Parsed CLI arguments (``path``, ``interval``, ``strategy``).
+        clock: Monotonic clock supplying the loop's notion of "now"; defaults
+            to ``time.monotonic``. Tests inject a fake so time can advance
+            without sleeping.
+    """
     import asyncio
     import time
     from pathlib import Path
 
-    from git_ai_sync import conflict_resolver, git_operations, metrics, notifier
+    from git_ai_sync import conflict_resolver, git_operations, metrics, notifier, quiet_window
     from git_ai_sync.config import Config
     from git_ai_sync.file_watcher import ChangeTracker
+
+    clock = clock if clock is not None else time.monotonic
 
     config = Config()
     repo_path = Path(args.path).resolve()
     interval = float(args.interval)
+    max_wait = float(config.max_wait)
 
     logger.info(f"Starting watch mode: path={repo_path}, interval={interval}s")
+    logger.info(f"Maximum wait: {max_wait:.0f}s")
+    if max_wait < interval:
+        logger.warning(
+            f"GIT_AI_SYNC_MAX_WAIT={max_wait:.0f}s is below --interval={interval:.0f}s:"
+            " the debounce is effectively disabled — every cycle syncs"
+        )
 
     if config.stall_threshold < 2:
         logger.error(f"GIT_AI_SYNC_STALL_THRESHOLD must be >= 2 (got {config.stall_threshold})")
@@ -156,7 +173,7 @@ def cmd_watch(args: argparse.Namespace) -> None:
         logger.error(str(e))
         sys.exit(1)
 
-    logger.info(f"Interval: {interval}s (skips if actively editing)")
+    logger.info(f"Interval: {interval}s (skips while actively editing; window halves each skip)")
 
     if config.pushgateway_url:
         logger.info(f"Pushgateway metrics enabled: {config.pushgateway_url}")
@@ -170,6 +187,8 @@ def cmd_watch(args: argparse.Namespace) -> None:
     # Start filesystem watcher to track changes
     tracker = ChangeTracker(git_repo)
     tracker.start()
+
+    window_tracker = quiet_window.QuietWindowTracker(clock())
 
     iteration = 0
     try:
@@ -185,15 +204,30 @@ def cmd_watch(args: argparse.Namespace) -> None:
                     git_repo,
                 )
 
-            # Check if files changed recently (within interval)
+            # Check if files changed recently (within the decaying quiet window)
+            now = clock()
             seconds_since_change = tracker.get_seconds_since_last_change()
-            if seconds_since_change < interval:
+            decision = window_tracker.decide(
+                seconds_since_change=seconds_since_change,
+                interval=interval,
+                max_wait=max_wait,
+                now=now,
+            )
+            if not decision.sync:
                 logger.info(
                     f"[{iteration}] Skipping - files changed"
-                    f" {seconds_since_change:.1f}s ago (still editing)"
+                    f" {seconds_since_change:.1f}s ago (still editing;"
+                    f" quiet window {decision.window:.1f}s)"
                 )
+                window_tracker.record_skip()
                 stall_tracker.record_skip()
                 continue
+
+            if decision.cap_fired and seconds_since_change < decision.window:
+                logger.info(
+                    f"[{iteration}] Maximum wait {max_wait:.0f}s reached —"
+                    " syncing regardless of quiet"
+                )
 
             # Safe to sync - no recent changes
             logger.info(f"[{iteration}] Checking...")
@@ -382,6 +416,7 @@ def cmd_watch(args: argparse.Namespace) -> None:
                         config.attention_store_url, stall_tracker.outstanding_item_id
                     )
                 stall_tracker.record_success()
+                window_tracker.record_success(now)
 
     finally:
         tracker.stop()

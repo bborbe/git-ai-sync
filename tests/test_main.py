@@ -133,12 +133,14 @@ def _configure_watch_config(
     attention_script: str = "/nonexistent/attention-ask.py",
     attention_store_url: str = "http://localhost:18080",
     pushgateway_url: str | None = None,
+    max_wait: int = 300,
 ) -> MagicMock:
     """Set every Config attribute cmd_watch reads on a patched Config mock."""
     mock_config.return_value.pushgateway_url = pushgateway_url
     mock_config.return_value.stall_threshold = stall_threshold
     mock_config.return_value.attention_script = attention_script
     mock_config.return_value.attention_store_url = attention_store_url
+    mock_config.return_value.max_wait = max_wait
     return mock_config
 
 
@@ -562,6 +564,38 @@ class TestCmdWatchDispatch:
             mock_git.pull_merge.assert_not_called()
             mock_heartbeat.assert_not_called()
             mock_last_success.assert_not_called()
+
+    def test_watch_quiet_window_clock_seam(self, caplog: pytest.LogCaptureFixture) -> None:
+        import contextlib
+
+        from git_ai_sync.__main__ import cmd_watch
+        from git_ai_sync.file_watcher import ChangeTracker
+
+        args = argparse.Namespace(path=".", interval=30, strategy="merge")
+        mock_git = _mock_git_ops()
+        mock_git.find_git_repo.return_value = Path("/repo")
+        mock_git.has_changes.return_value = False
+        mock_git.is_ahead_of_remote.return_value = False
+        clock_mock = MagicMock(side_effect=[0.0, 30.0])
+        # First sleep returns None (loop body runs once), second raises to break loop
+        sleep_side_effect: list[object] = [None, KeyboardInterrupt()]
+        with (
+            patch(_GIT_OPS, mock_git),
+            patch(_CONFIG) as mock_config,
+            patch(_ACQUIRE_LOCK),
+            patch.object(ChangeTracker, "start"),
+            patch.object(ChangeTracker, "stop"),
+            patch.object(ChangeTracker, "get_seconds_since_last_change", return_value=999),
+            patch("time.sleep", side_effect=sleep_side_effect),
+            caplog.at_level("INFO"),
+        ):
+            _configure_watch_config(mock_config, pushgateway_url=None)
+            with contextlib.suppress(KeyboardInterrupt):
+                cmd_watch(args, clock=clock_mock)
+            mock_git.pull_merge.assert_called_once()
+            assert any("[1] Checking..." in r.getMessage() for r in caplog.records)
+            # One process-start reading plus exactly one per cycle.
+            assert clock_mock.call_count == 2
 
     def test_watch_heartbeat_one_per_cycle(self) -> None:
         import contextlib
@@ -1482,6 +1516,249 @@ def test_watch_skip_is_neutral(
     assert any("[3] Checking..." in r.getMessage() for r in caplog.records)
     assert mock_git.pull_merge.call_count == 2
     assert recording_store.requests == []
+
+
+def test_quiet_window_cap_binds_at_second_boundary(caplog: pytest.LogCaptureFixture) -> None:
+    """A 60 s bound at a 30 s interval forces a sync on the second boundary only."""
+    from git_ai_sync.__main__ import cmd_watch
+    from git_ai_sync.file_watcher import ChangeTracker
+
+    args = argparse.Namespace(path=".", interval=30, strategy="merge")
+    mock_git = _mock_git_ops()
+    mock_git.find_git_repo.return_value = Path("/repo")
+    mock_git.has_changes.return_value = True
+    mock_git.generate_commit_message.return_value = "auto: 2026-01-01"
+    mock_git.is_ahead_of_remote.return_value = False
+    clock_mock = MagicMock(side_effect=[0.0, 30.0, 60.0])
+    sleep_side_effect: list[object] = [None, None, KeyboardInterrupt()]
+    with (
+        patch(_GIT_OPS, mock_git),
+        patch(_CONFIG) as mock_config,
+        patch(_ACQUIRE_LOCK),
+        patch.object(ChangeTracker, "start"),
+        patch.object(ChangeTracker, "stop"),
+        # A change stream that never goes quiet.
+        patch.object(ChangeTracker, "get_seconds_since_last_change", return_value=1.0),
+        patch("time.sleep", side_effect=sleep_side_effect),
+        patch(
+            "git_ai_sync.conflict_resolver.commit_with_marker_recovery",
+            new_callable=AsyncMock,
+        ),
+        caplog.at_level("INFO"),
+    ):
+        _configure_watch_config(mock_config, pushgateway_url=None, max_wait=60)
+        with contextlib.suppress(KeyboardInterrupt):
+            cmd_watch(args, clock=clock_mock)
+
+    assert mock_git.pull_merge.call_count == 1
+    assert mock_git.push.call_count == 1
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("[2] Checking..." in message for message in messages)
+    assert not any("[1] Checking..." in message for message in messages)
+    assert any("Maximum wait 60" in message for message in messages)
+
+
+def test_quiet_window_cap_binds_at_third_boundary(caplog: pytest.LogCaptureFixture) -> None:
+    """A 75 s bound at a 30 s interval forces a sync on the third boundary only."""
+    from git_ai_sync.__main__ import cmd_watch
+    from git_ai_sync.file_watcher import ChangeTracker
+
+    args = argparse.Namespace(path=".", interval=30, strategy="merge")
+    mock_git = _mock_git_ops()
+    mock_git.find_git_repo.return_value = Path("/repo")
+    mock_git.has_changes.return_value = True
+    mock_git.generate_commit_message.return_value = "auto: 2026-01-01"
+    mock_git.is_ahead_of_remote.return_value = False
+    clock_mock = MagicMock(side_effect=[0.0, 30.0, 60.0, 90.0])
+    sleep_side_effect: list[object] = [None, None, None, KeyboardInterrupt()]
+    with (
+        patch(_GIT_OPS, mock_git),
+        patch(_CONFIG) as mock_config,
+        patch(_ACQUIRE_LOCK),
+        patch.object(ChangeTracker, "start"),
+        patch.object(ChangeTracker, "stop"),
+        # A change stream that never goes quiet.
+        patch.object(ChangeTracker, "get_seconds_since_last_change", return_value=1.0),
+        patch("time.sleep", side_effect=sleep_side_effect),
+        patch(
+            "git_ai_sync.conflict_resolver.commit_with_marker_recovery",
+            new_callable=AsyncMock,
+        ),
+        caplog.at_level("INFO"),
+    ):
+        _configure_watch_config(mock_config, pushgateway_url=None, max_wait=75)
+        with contextlib.suppress(KeyboardInterrupt):
+            cmd_watch(args, clock=clock_mock)
+
+    assert mock_git.pull_merge.call_count == 1
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("[3] Checking..." in message for message in messages)
+    assert not any("[2] Checking..." in message for message in messages)
+    assert not any("[1] Checking..." in message for message in messages)
+    assert any("Maximum wait 75" in message for message in messages)
+
+
+def test_quiet_window_env_max_wait_forces_every_cycle(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A bound below the interval arrives from the environment and forces every cycle."""
+    from git_ai_sync.__main__ import cmd_watch
+    from git_ai_sync.file_watcher import ChangeTracker
+
+    monkeypatch.setenv("GIT_AI_SYNC_MAX_WAIT", "10")
+    for name in (
+        "GIT_AI_SYNC_STALL_THRESHOLD",
+        "GIT_AI_SYNC_PUSHGATEWAY_URL",
+        "GIT_AI_SYNC_PUSHGATEWAY_USERNAME",
+        "GIT_AI_SYNC_PUSHGATEWAY_PASSWORD",
+        "GIT_AI_SYNC_INTERVAL",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+    args = argparse.Namespace(path=".", interval=30, strategy="merge")
+    mock_git = _mock_git_ops()
+    mock_git.find_git_repo.return_value = Path("/repo")
+    mock_git.has_changes.return_value = True
+    mock_git.generate_commit_message.return_value = "auto: 2026-01-01"
+    mock_git.is_ahead_of_remote.return_value = False
+    clock_mock = MagicMock(side_effect=[0.0, 30.0, 60.0])
+    sleep_side_effect: list[object] = [None, None, KeyboardInterrupt()]
+    with (
+        patch(_GIT_OPS, mock_git),
+        patch(_ACQUIRE_LOCK),
+        patch.object(ChangeTracker, "start"),
+        patch.object(ChangeTracker, "stop"),
+        # A change stream that never goes quiet.
+        patch.object(ChangeTracker, "get_seconds_since_last_change", return_value=1.0),
+        patch("time.sleep", side_effect=sleep_side_effect),
+        patch(
+            "git_ai_sync.conflict_resolver.commit_with_marker_recovery",
+            new_callable=AsyncMock,
+        ),
+        caplog.at_level("INFO"),
+        contextlib.suppress(KeyboardInterrupt),
+    ):
+        cmd_watch(args, clock=clock_mock)
+
+    assert mock_git.pull_merge.call_count == 2
+    assert mock_git.push.call_count == 2
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("[1] Checking..." in message for message in messages)
+    assert any("[2] Checking..." in message for message in messages)
+    assert any(
+        r.levelname == "WARNING" and "debounce is effectively disabled" in r.getMessage()
+        for r in caplog.records
+    )
+
+
+def test_quiet_window_resets_after_success(caplog: pytest.LogCaptureFixture) -> None:
+    """A successful cycle restores the full window, so the next change is skipped."""
+    from git_ai_sync.__main__ import cmd_watch
+    from git_ai_sync.file_watcher import ChangeTracker
+
+    args = argparse.Namespace(path=".", interval=30, strategy="merge")
+    mock_git = _mock_git_ops()
+    mock_git.find_git_repo.return_value = Path("/repo")
+    mock_git.has_changes.return_value = True
+    mock_git.generate_commit_message.return_value = "auto: 2026-01-01"
+    mock_git.is_ahead_of_remote.return_value = False
+    clock_mock = MagicMock(side_effect=[0.0, 30.0, 60.0])
+    sleep_side_effect: list[object] = [None, None, KeyboardInterrupt()]
+    with (
+        patch(_GIT_OPS, mock_git),
+        patch(_CONFIG) as mock_config,
+        patch(_ACQUIRE_LOCK),
+        patch.object(ChangeTracker, "start"),
+        patch.object(ChangeTracker, "stop"),
+        # First cycle sees a quiet vault; the second sees a change 5 s old.
+        patch.object(ChangeTracker, "get_seconds_since_last_change", side_effect=[999, 5]),
+        patch("time.sleep", side_effect=sleep_side_effect),
+        patch(
+            "git_ai_sync.conflict_resolver.commit_with_marker_recovery",
+            new_callable=AsyncMock,
+        ),
+        caplog.at_level("INFO"),
+    ):
+        _configure_watch_config(mock_config, pushgateway_url=None, max_wait=300)
+        with contextlib.suppress(KeyboardInterrupt):
+            cmd_watch(args, clock=clock_mock)
+
+    assert mock_git.pull_merge.call_count == 1
+    assert mock_git.push.call_count == 1
+    messages = [r.getMessage() for r in caplog.records]
+    assert not any("[2] Checking..." in message for message in messages)
+    skip_records = [message for message in messages if message.startswith("[2] Skipping")]
+    assert skip_records
+    assert "30" in skip_records[0]
+
+
+def test_quiet_window_skip_log_reports_decayed_window(caplog: pytest.LogCaptureFixture) -> None:
+    """Each skipped cycle reports the halved window actually in force."""
+    from git_ai_sync.__main__ import cmd_watch
+    from git_ai_sync.file_watcher import ChangeTracker
+
+    args = argparse.Namespace(path=".", interval=30, strategy="merge")
+    mock_git = _mock_git_ops()
+    mock_git.find_git_repo.return_value = Path("/repo")
+    mock_git.has_changes.return_value = False
+    mock_git.is_ahead_of_remote.return_value = False
+    clock_mock = MagicMock(side_effect=[0.0, 30.0, 60.0])
+    sleep_side_effect: list[object] = [None, None, KeyboardInterrupt()]
+    with (
+        patch(_GIT_OPS, mock_git),
+        patch(_CONFIG) as mock_config,
+        patch(_ACQUIRE_LOCK),
+        patch.object(ChangeTracker, "start"),
+        patch.object(ChangeTracker, "stop"),
+        patch.object(ChangeTracker, "get_seconds_since_last_change", return_value=5.0),
+        patch("time.sleep", side_effect=sleep_side_effect),
+        caplog.at_level("INFO"),
+    ):
+        _configure_watch_config(mock_config, pushgateway_url=None, max_wait=300)
+        with contextlib.suppress(KeyboardInterrupt):
+            cmd_watch(args, clock=clock_mock)
+
+    mock_git.pull_merge.assert_not_called()
+    messages = [r.getMessage() for r in caplog.records]
+    first_skip = [message for message in messages if message.startswith("[1] Skipping")]
+    second_skip = [message for message in messages if message.startswith("[2] Skipping")]
+    assert first_skip
+    assert second_skip
+    assert "30" in first_skip[0]
+    assert "15" in second_skip[0]
+
+
+def test_quiet_window_quiet_vault_unchanged(caplog: pytest.LogCaptureFixture) -> None:
+    """A quiet vault syncs on the first cycle, with no cap and no skip."""
+    from git_ai_sync.__main__ import cmd_watch
+    from git_ai_sync.file_watcher import ChangeTracker
+
+    args = argparse.Namespace(path=".", interval=30, strategy="merge")
+    mock_git = _mock_git_ops()
+    mock_git.find_git_repo.return_value = Path("/repo")
+    mock_git.has_changes.return_value = False
+    mock_git.is_ahead_of_remote.return_value = False
+    clock_mock = MagicMock(side_effect=[0.0, 30.0])
+    sleep_side_effect: list[object] = [None, KeyboardInterrupt()]
+    with (
+        patch(_GIT_OPS, mock_git),
+        patch(_CONFIG) as mock_config,
+        patch(_ACQUIRE_LOCK),
+        patch.object(ChangeTracker, "start"),
+        patch.object(ChangeTracker, "stop"),
+        patch.object(ChangeTracker, "get_seconds_since_last_change", return_value=999),
+        patch("time.sleep", side_effect=sleep_side_effect),
+        caplog.at_level("INFO"),
+    ):
+        _configure_watch_config(mock_config, pushgateway_url=None, max_wait=300)
+        with contextlib.suppress(KeyboardInterrupt):
+            cmd_watch(args, clock=clock_mock)
+
+    mock_git.pull_merge.assert_called_once()
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("[1] Checking..." in message for message in messages)
+    assert not any("Maximum wait" in message and "reached" in message for message in messages)
+    assert not any("Skipping" in message for message in messages)
 
 
 def test_watch_one_card_until_reset(stub_notifier, recording_store) -> None:

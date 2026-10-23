@@ -120,6 +120,11 @@ class TestGeneratePlist:
             "GIT_AI_SYNC_PUSHGATEWAY_URL": "https://pushgateway.example.com"
         }
 
+    def test_max_wait_env_passthrough(self) -> None:
+        env = {"GIT_AI_SYNC_MAX_WAIT": "300"}
+        plist = generate_plist(_BINARY, _VAULT, "personal", env)
+        assert plist["EnvironmentVariables"] == {"GIT_AI_SYNC_MAX_WAIT": "300"}
+
     def test_env_none_set(self) -> None:
         plist = generate_plist(_BINARY, _VAULT, "personal", {})
         assert plist["EnvironmentVariables"] == {}

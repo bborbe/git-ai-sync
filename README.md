@@ -88,9 +88,17 @@ See [`docs/launchd-service.md`](docs/launchd-service.md) for the full guide and 
 ## How It Works
 
 1. **Watch** - Polls repository at regular intervals
-2. **Debounce** - Skips sync when files changed recently (active editing)
+2. **Debounce** - Waits for the vault to go quiet before syncing, halving the required quiet window on every consecutive skip and forcing a sync once the maximum wait elapses
 3. **Sync** - Stages, commits, pulls with rebase, pushes
 4. **Resolve** - On conflicts, invokes Claude to intelligently merge
+
+## Debounce
+
+The watcher does not sync while you are actively editing. Each cycle it checks how long ago files last changed, and skips the sync when that is more recent than the required quiet window. The window starts at the poll interval and halves on every consecutive skipped cycle, so a vault written continuously still decays toward a window short enough to become eligible to sync. A successful sync resets the window to the full interval and restarts the wait clock.
+
+That decay alone would still let a busy vault go a long time without a sync, so a hard bound sits on top of it: `GIT_AI_SYNC_MAX_WAIT` forces a sync once that many seconds have passed since the last successful sync, regardless of how recently files changed. The worst-case delay on a continuously written vault is therefore the maximum wait rounded up to the next poll boundary — at most `max_wait + interval` seconds.
+
+A vault that goes quiet between cycles is unaffected: once the quiet window has passed, the cycle syncs exactly as it did before this behaviour existed. The two mechanisms are distinguishable in the log — a skipped cycle reports the quiet window currently in force, while a cycle forced by the bound says so explicitly.
 
 ## Configuration
 
@@ -104,6 +112,7 @@ See [`docs/launchd-service.md`](docs/launchd-service.md) for the full guide and 
 | `GIT_AI_SYNC_PUSHGATEWAY_USERNAME` | Pushgateway basic-auth username | unset |
 | `GIT_AI_SYNC_PUSHGATEWAY_PASSWORD` | Pushgateway basic-auth password | unset |
 | `GIT_AI_SYNC_LOG_FILE` | Log file path for the rotating file handler (5 MB x 5 backups) | unset (stderr only) |
+| `GIT_AI_SYNC_MAX_WAIT` | Maximum seconds without a successful watch sync before one is forced regardless of how recently files changed | `300` |
 | `GIT_AI_SYNC_STALL_THRESHOLD` | Consecutive failed watch cycles before one attention card is posted (must be >= 2) | `10` |
 | `GIT_AI_SYNC_ATTENTION_SCRIPT` | Path to the supervisor's `attention-ask.py` posting script | `~/.claude/plugins/marketplaces/claude-supervisor/scripts/attention-ask.py` |
 | `ATTENTION_STORE_URL` | Attention store base URL (no `GIT_AI_SYNC_` prefix — the same variable the posting script reads) | `http://localhost:18080` |
@@ -143,7 +152,7 @@ The store protocol the alert depends on is documented in [`docs/attention-store.
 
 **Conflict resolution fails** — Ensure Claude Code is authenticated (`claude login`). Run `git-ai-sync doctor` to diagnose.
 
-**Changes not syncing** — Debounce may be active (files changed within the interval). Run `git-ai-sync sync` to force a one-time sync.
+**Changes not syncing** — Debounce may be active while files changed recently, but it cannot defer a sync beyond the maximum wait (`GIT_AI_SYNC_MAX_WAIT`, default 300 s). Run `git-ai-sync sync` to force a one-time sync.
 
 ## Requirements
 

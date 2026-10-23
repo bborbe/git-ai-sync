@@ -17,6 +17,7 @@ class TestConfigDefaults:
         monkeypatch.delenv("GIT_AI_SYNC_PUSHGATEWAY_USERNAME", raising=False)
         monkeypatch.delenv("GIT_AI_SYNC_PUSHGATEWAY_PASSWORD", raising=False)
         monkeypatch.delenv("GIT_AI_SYNC_LOG_FILE", raising=False)
+        monkeypatch.delenv("GIT_AI_SYNC_MAX_WAIT", raising=False)
         monkeypatch.delenv("GIT_AI_SYNC_STALL_THRESHOLD", raising=False)
         monkeypatch.delenv("GIT_AI_SYNC_ATTENTION_SCRIPT", raising=False)
         monkeypatch.delenv("ATTENTION_STORE_URL", raising=False)
@@ -32,6 +33,7 @@ class TestConfigDefaults:
         assert config.pushgateway_username is None
         assert config.pushgateway_password is None
         assert config.log_file is None
+        assert config.max_wait == 300
         assert config.stall_threshold == 10
         assert config.attention_store_url == "http://localhost:18080"
         assert config.attention_script == str(
@@ -99,6 +101,18 @@ class TestConfigFromEnv:
         monkeypatch.setenv("GIT_AI_SYNC_LOG_FILE", "/tmp/git-ai-sync.log")
         config = Config()
         assert config.log_file == "/tmp/git-ai-sync.log"
+
+    def test_max_wait_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("GIT_AI_SYNC_MAX_WAIT", "10")
+        config = Config()
+        assert config.max_wait == 10
+
+    def test_max_wait_zero_is_not_rejected_at_construction(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("GIT_AI_SYNC_MAX_WAIT", "0")
+        config = Config()
+        assert config.max_wait == 0
 
     def test_stall_threshold_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("GIT_AI_SYNC_STALL_THRESHOLD", "3")

@@ -112,7 +112,7 @@ Automatic Git repository sync with AI-powered conflict resolution (Python/uv).
 
 ## Key Design Decisions
 
-- **Watch mode = poll + debounce** — polls at interval, skips sync if files changed recently (active editing)
+- **Watch mode = poll + debounce with decay** — polls at interval, skips sync while files change, halves the required quiet window on each consecutive skip, and forces a sync once `max_wait` (`GIT_AI_SYNC_MAX_WAIT`, default 300 s) has elapsed since the last success
 - **Sync flow:** stage → commit → pull --rebase → push (always rebase, never merge)
 - **Conflict resolution via Claude Code SDK** — spawns Claude to resolve merge conflicts
 - **All git operations are functions, not methods** — stateless, take `repo_path: Path` as first arg

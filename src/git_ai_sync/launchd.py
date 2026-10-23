@@ -5,9 +5,9 @@ reproducing the frozen shape of the hand-written live plists: the label is
 derived from the last path component of the vault directory, the program runs
 ``watch <vault-dir> --interval 30 --strategy merge`` with KeepAlive and
 RunAtLoad, logs to ``/tmp/git-ai-sync-<label>.log``, applies the fixed soft and
-hard resource limits, and passes the pushgateway and stall-alert environment
-variables through verbatim, each key present only when set in the setup
-environment.
+hard resource limits, and passes the pushgateway, maximum-wait, and stall-alert
+environment variables through verbatim, each key present only when set in the
+setup environment.
 """
 
 import logging
@@ -26,6 +26,7 @@ _PASSTHROUGH_ENV_KEYS = (
     "GIT_AI_SYNC_PUSHGATEWAY_URL",
     "GIT_AI_SYNC_PUSHGATEWAY_USERNAME",
     "GIT_AI_SYNC_PUSHGATEWAY_PASSWORD",
+    "GIT_AI_SYNC_MAX_WAIT",
     "GIT_AI_SYNC_STALL_THRESHOLD",
     "GIT_AI_SYNC_ATTENTION_SCRIPT",
     "ATTENTION_STORE_URL",
@@ -93,8 +94,8 @@ def generate_plist(
     The caller passes ``vault_dir`` already resolved to an absolute path. The
     ``watch`` command and its defaults (``--interval 30 --strategy merge``) are
     hardcoded and deliberately not read from ``Config`` or the environment. The
-    pushgateway and stall-alert environment variables are carried verbatim, each
-    key present only when set in ``env``.
+    pushgateway, maximum-wait, and stall-alert environment variables are carried
+    verbatim, each key present only when set in ``env``.
 
     Args:
         binary: Absolute path to the git-ai-sync binary
