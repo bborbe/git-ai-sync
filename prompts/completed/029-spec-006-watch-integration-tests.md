@@ -1,8 +1,13 @@
 ---
-status: approved
+status: completed
 spec: [006-watch-quiet-window-decay]
+summary: Added six cmd_watch integration tests proving the decaying quiet window, the maximum-wait cap at two different boundaries, the environment-driven bound, post-success reset, the decayed skip log, and unchanged quiet-vault behaviour.
+execution_id: git-ai-sync-exec-029-spec-006-watch-integration-tests
+dark-factory-version: v0.198.7
 created: "2026-10-23T16:00:34Z"
 queued: "2026-10-23T16:09:35Z"
+started: "2026-10-23T16:16:58Z"
+completed: "2026-10-23T16:20:51Z"
 ---
 
 # Prove the bounded sync from the production watch loop
