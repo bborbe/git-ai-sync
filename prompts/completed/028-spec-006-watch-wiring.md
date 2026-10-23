@@ -1,8 +1,13 @@
 ---
-status: approved
+status: completed
 spec: [006-watch-quiet-window-decay]
+summary: Wired the decaying quiet-window decision and injected monotonic clock into cmd_watch, replacing the flat interval comparison and adding the success reset, cap log, and below-interval warning.
+execution_id: git-ai-sync-exec-028-spec-006-watch-wiring
+dark-factory-version: v0.198.7
 created: "2026-10-23T16:00:34Z"
 queued: "2026-10-23T16:09:35Z"
+started: "2026-10-23T16:14:11Z"
+completed: "2026-10-23T16:16:57Z"
 ---
 
 # Wire the decaying window and the maximum-wait cap into the watch loop

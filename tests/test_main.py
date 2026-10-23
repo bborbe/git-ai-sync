@@ -133,12 +133,14 @@ def _configure_watch_config(
     attention_script: str = "/nonexistent/attention-ask.py",
     attention_store_url: str = "http://localhost:18080",
     pushgateway_url: str | None = None,
+    max_wait: int = 300,
 ) -> MagicMock:
     """Set every Config attribute cmd_watch reads on a patched Config mock."""
     mock_config.return_value.pushgateway_url = pushgateway_url
     mock_config.return_value.stall_threshold = stall_threshold
     mock_config.return_value.attention_script = attention_script
     mock_config.return_value.attention_store_url = attention_store_url
+    mock_config.return_value.max_wait = max_wait
     return mock_config
 
 
@@ -562,6 +564,38 @@ class TestCmdWatchDispatch:
             mock_git.pull_merge.assert_not_called()
             mock_heartbeat.assert_not_called()
             mock_last_success.assert_not_called()
+
+    def test_watch_quiet_window_clock_seam(self, caplog: pytest.LogCaptureFixture) -> None:
+        import contextlib
+
+        from git_ai_sync.__main__ import cmd_watch
+        from git_ai_sync.file_watcher import ChangeTracker
+
+        args = argparse.Namespace(path=".", interval=30, strategy="merge")
+        mock_git = _mock_git_ops()
+        mock_git.find_git_repo.return_value = Path("/repo")
+        mock_git.has_changes.return_value = False
+        mock_git.is_ahead_of_remote.return_value = False
+        clock_mock = MagicMock(side_effect=[0.0, 30.0])
+        # First sleep returns None (loop body runs once), second raises to break loop
+        sleep_side_effect: list[object] = [None, KeyboardInterrupt()]
+        with (
+            patch(_GIT_OPS, mock_git),
+            patch(_CONFIG) as mock_config,
+            patch(_ACQUIRE_LOCK),
+            patch.object(ChangeTracker, "start"),
+            patch.object(ChangeTracker, "stop"),
+            patch.object(ChangeTracker, "get_seconds_since_last_change", return_value=999),
+            patch("time.sleep", side_effect=sleep_side_effect),
+            caplog.at_level("INFO"),
+        ):
+            _configure_watch_config(mock_config, pushgateway_url=None)
+            with contextlib.suppress(KeyboardInterrupt):
+                cmd_watch(args, clock=clock_mock)
+            mock_git.pull_merge.assert_called_once()
+            assert any("[1] Checking..." in r.getMessage() for r in caplog.records)
+            # One process-start reading plus exactly one per cycle.
+            assert clock_mock.call_count == 2
 
     def test_watch_heartbeat_one_per_cycle(self) -> None:
         import contextlib
