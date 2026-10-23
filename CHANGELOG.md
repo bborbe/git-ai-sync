@@ -8,7 +8,7 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 * MINOR version when you add functionality in a backwards-compatible manner, and
 * PATCH version when you make backwards-compatible bug fixes.
 
-## Unreleased
+## v0.14.0
 
 - feat: Bound the watch debounce — halve the required quiet window on every consecutive skipped cycle and force a sync once `GIT_AI_SYNC_MAX_WAIT` (default 300 s) has elapsed since the last success, so a vault written continuously still commits and pulls within `max_wait + interval`
 
