@@ -1,8 +1,9 @@
 ---
-status: prompted
+status: verifying
 approved: "2026-10-23T15:43:55Z"
 generating: "2026-10-23T16:09:29Z"
 prompted: "2026-10-23T16:09:29Z"
+verifying: "2026-10-23T16:20:52Z"
 branch: dark-factory/watch-quiet-window-decay
 ---
 ## Summary
