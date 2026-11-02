@@ -20,9 +20,10 @@ BUILD_PUSH_SECRET ?= buildkit-push
 # which commit to build, and the script refuses to run without it.
 REF ?=
 
-# The tag the cluster pushes. Empty on purpose, and separate from BRANCH: a
-# cluster build must never overwrite the moving `:master` tag.
-VERSION ?=
+# The tag the image carries. Defaults to the git description so a plain
+# `make build` works. The cluster arm refuses this default and demands an
+# explicit scratch tag, so a cluster build can never overwrite a moving tag.
+VERSION ?= $(shell git describe --tags --always --dirty)
 
 help:
 	@echo "Available targets:"
@@ -114,5 +115,14 @@ else
 	@echo "upload: skipped — BUILD_TARGET=$(BUILD_TARGET); the cluster Job already pushed $(DOCKER_REGISTRY)/$(IMAGE):$(VERSION)"
 endif
 
+.PHONY: clean-image
+ifeq ($(BUILD_TARGET),local)
+clean-image:
+	docker rmi $(DOCKER_REGISTRY)/$(IMAGE):$(VERSION) || true
+else
+clean-image:
+	@echo "clean-image: skipped — BUILD_TARGET=$(BUILD_TARGET); no local image to remove"
+endif
+
 .PHONY: buca
-buca: build upload clean
+buca: build upload clean-image
