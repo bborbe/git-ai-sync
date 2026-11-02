@@ -14,7 +14,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.x'
+          # Pinned, not '3.x': '3.x' began resolving to 3.15, where a transitive
+          # dev dependency (librt, via mypy) has no wheel and fails to compile
+          # from source. The project declares requires-python >=3.14.
+          python-version: '3.14'
       - name: Install uv
         run: pip install uv
       - name: Run tests

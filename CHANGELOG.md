@@ -11,6 +11,7 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 ## Unreleased
 
 - feat: add `build` / `upload` / `clean` / `buca` targets — the repo shipped a `Dockerfile` but no way to build it from `make`. `make build` builds locally; `make build BUILD_TARGET=<cluster> REF=<sha> VERSION=<tag>` runs the build as a Kubernetes Job via `hack/build-cluster.sh`, vendored with `hack/cluster-alias.sh` and `hack/build-job.yaml` from `bborbe/agent-task-executor`
+- fix(ci): pin `python-version` to 3.14 instead of `3.x`. `3.x` began resolving to 3.15, where `librt` (a dev transitive via mypy) has no wheel and fails to compile from source, breaking `make test` on every PR. The project declares `requires-python >=3.14`
 
 ## v0.14.0
 
