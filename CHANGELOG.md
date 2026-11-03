@@ -8,7 +8,7 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 * MINOR version when you add functionality in a backwards-compatible manner, and
 * PATCH version when you make backwards-compatible bug fixes.
 
-## Unreleased
+## v0.15.0
 
 - fix: keep the rootless BuildKit build container startable. `allowPrivilegeEscalation: false` and `capabilities.drop: ["ALL"]` on that container stop `rootlesskit` from installing its uid/gid map (`newuidmap: operation not permitted`), so every cluster build died at startup; both are removed and the reason is recorded in `hack/build-job.yaml`. Also hardened the clone path: the token is scoped to its origin host, deleted on the error path as well as the success path, and refused over a non-https URL; `REF` can no longer be read as a git option; and `__CONTEXT__` is listed in the template's token table
 - feat: add `build` / `upload` / `clean` / `buca` targets — the repo shipped a `Dockerfile` but no way to build it from `make`. `make build` builds locally; `make build BUILD_TARGET=<cluster> REF=<sha> VERSION=<tag>` runs the build as a Kubernetes Job via `hack/build-cluster.sh`, vendored with `hack/cluster-alias.sh` and `hack/build-job.yaml` from `bborbe/agent-task-executor`
