@@ -10,8 +10,9 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- fix: keep the rootless BuildKit build container startable. `allowPrivilegeEscalation: false` and `capabilities.drop: ["ALL"]` on that container stop `rootlesskit` from installing its uid/gid map (`newuidmap: operation not permitted`), so every cluster build died at startup; both are removed and the reason is recorded in `hack/build-job.yaml`. Also hardened the clone path: the token is scoped to its origin host, deleted on the error path as well as the success path, and refused over a non-https URL; `REF` can no longer be read as a git option; and `__CONTEXT__` is listed in the template's token table
 - feat: add `build` / `upload` / `clean` / `buca` targets — the repo shipped a `Dockerfile` but no way to build it from `make`. `make build` builds locally; `make build BUILD_TARGET=<cluster> REF=<sha> VERSION=<tag>` runs the build as a Kubernetes Job via `hack/build-cluster.sh`, vendored with `hack/cluster-alias.sh` and `hack/build-job.yaml` from `bborbe/agent-task-executor`
-- fix(ci): pin `python-version` to 3.14 instead of `3.x`. `3.x` began resolving to 3.15, where `librt` (a dev transitive via mypy) has no wheel and fails to compile from source, breaking `make test` on every PR. The project declares `requires-python >=3.14`
+- fix: pin the CI `python-version` to 3.14 instead of `3.x`. `3.x` began resolving to 3.15, where `librt` (a dev transitive via mypy) has no wheel and fails to compile from source, breaking `make test` on every PR. The project declares `requires-python >=3.14`
 
 ## v0.14.0
 

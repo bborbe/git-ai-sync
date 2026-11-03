@@ -89,9 +89,10 @@ build:
 		echo "ERROR: REF is required for a cluster build — pass REF=<commit>" >&2; \
 		exit 1; \
 	fi
-	@if [ -z "$(VERSION)" ]; then \
+	@if [ "$(origin VERSION)" = "file" ] || [ "$(origin VERSION)" = "undefined" ]; then \
 		echo "ERROR: VERSION is required for a cluster build — pass VERSION=<scratch-tag>." >&2; \
 		echo "  The cluster arm pushes, so an unset tag would overwrite a moving reference." >&2; \
+		echo "  VERSION defaults to the git description ($(VERSION)), which is not an acceptable target." >&2; \
 		exit 1; \
 	fi
 	BUILD_TARGET='$(BUILD_TARGET)' \
