@@ -1,8 +1,10 @@
 ---
-status: prompted
+status: completed
 approved: "2026-11-09T21:55:17Z"
 generating: "2026-11-09T22:09:56Z"
 prompted: "2026-11-09T22:15:13Z"
+verifying: "2026-11-09T22:21:32Z"
+completed: "2026-11-09T22:21:40Z"
 branch: dark-factory/pin-core-hookspath-in-sync-test-fixture
 ---
 
