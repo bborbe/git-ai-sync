@@ -1,7 +1,13 @@
 ---
-status: draft
+status: completed
 spec: [007-go-sync-loop-prototype]
+summary: Implemented internal/git (repo discovery, status, stage, commit, merge/rebase pull with conflict detection, push, ahead-of-remote, commit message) and internal/sync (stage → commit → pull → push cycle with watch and one-shot modes), with tests against local scratch repositories, and documented it in CHANGELOG.md
+execution_id: 8557c7c1-90b2-5210-af4e-6b1dcc28efaa-exec-032-spec-007-git-operations-and-cycle
+dark-factory-version: dev
 created: "2026-11-09T18:54:14Z"
+queued: "2026-11-09T19:30:06Z"
+started: "2026-11-09T19:30:08Z"
+completed: "2026-11-09T19:32:14Z"
 branch: dark-factory/go-sync-loop-prototype
 ---
 

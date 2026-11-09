@@ -11,6 +11,7 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 ## Unreleased
 
 - feat: add a Go `git-ai-sync` binary with `sync` and `watch` subcommands, config, logging, git operations, the decaying quiet-window gate, a filesystem change tracker, and an instance lock, wired into the same poll / debounce / maximum-wait loop as the existing tool
+- feat: add the Go git operations (`FindRepo`, `HasChanges`, `StageAll`, `Commit`, `Pull` with merge or rebase, `Push`, `IsAheadOfRemote`, `GenerateCommitMessage`) and the stage → commit → pull → push sync cycle, including the watch-mode clean-worktree pull and the one-shot `sync` "no changes" short circuit, tested against local scratch repositories
 - chore: add the `test-go` and `precommit-go` Makefile targets for the Go module and correct the stale "always rebase, never merge" strategy note in `CLAUDE.md`
 
 ## v0.15.1
