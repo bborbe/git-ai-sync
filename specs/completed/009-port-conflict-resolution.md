@@ -84,7 +84,7 @@ The Go binary resolves merge and rebase conflicts through the Claude CLI with th
 ### Operator-executable (runs on the host after merge)
 
 - One real end-to-end run against a throwaway clone with a genuine conflict and a bare remote, using the real Claude CLI: `git-ai-sync resolve .` exits 0, the file carries both sides and no markers, `git status --porcelain` no longer shows `UU`, and the push lands. Record the output in `# Progress`.
-- A second run with the real CLI unauthenticated (an empty `CLAUDE_CONFIG_DIR`) confirming the file is untouched — the check the container cannot make honestly, because the container's auth state is not the operator's.
+- A second run with the real CLI forced to fail, confirming the file is untouched — the check the container cannot make honestly, because the container's auth state is not the operator's. ⚠️ **Do not try to unauthenticate it with an empty `CLAUDE_CONFIG_DIR`.** Measured on this machine before merge: `security find-generic-password -s 'Claude Code-credentials'` is PRESENT and `ANTHROPIC_BASE_URL` is set, so the credential resolves from the Keychain and the router regardless of the config directory — that setup leaves the CLI working and the probe proves nothing. Force the failure at the transport instead: `ANTHROPIC_BASE_URL=http://127.0.0.1:1 git-ai-sync resolve .`, then confirm `shasum -a 256` is unchanged and `git status --porcelain` still shows `UU`.
 
 ## Desired Behavior
 
