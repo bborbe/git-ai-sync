@@ -24,3 +24,20 @@ jobs:
         run: make test
       - name: Run checks
         run: make check
+
+  # The Go port (spec 007). Landed by the operator, never by the dark-factory
+  # agent: its GitHub App holds no `workflows` permission, so any agent commit
+  # touching .github/workflows/ is rejected at push.
+  go:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          # Read from go.mod so the toolchain follows the module's own `go`
+          # directive instead of a version pinned here that drifts.
+          go-version-file: go.mod
+          cache: true
+      - name: Run Go tests
+        run: make test-go

@@ -72,6 +72,7 @@ Automatic Git repository sync with AI-powered conflict resolution (Python/uv).
 - Run `dark-factory prompt approve` / `dark-factory spec approve` yourself once the prompt/spec passed its auditor (global rule execution-phase-no-reask)
 - **Before starting daemon** — run `dark-factory status` first to check if one is already running. Only start if not running.
 - **Start daemon in background** — use Bash tool with `run_in_background: true` (not foreground, not detached with `&`)
+- **Never touch `.github/workflows/`** — neither in a prompt, a spec AC, nor a direct edit. The cluster agent authenticates as a GitHub App that holds no `workflows` permission, so any commit that creates or updates a workflow file is rejected at push (`refusing to allow a GitHub App to create or update workflow … without 'workflows' permission`) and the whole job fails after the code has been written and lost. CI wiring is an **operator step**: the operator lands `.github/workflows/*` with their own credentials, and the agent's diff must not contain it. A spec that requires a workflow change in its own diff cannot be satisfied by this pipeline.
 
 ## Development Standards
 
@@ -107,13 +108,13 @@ Automatic Git repository sync with AI-powered conflict resolution (Python/uv).
 - `src/git_ai_sync/config.py` — Configuration via pydantic-settings (env vars)
 - `src/git_ai_sync/conflict_resolver.py` — AI-powered conflict resolution via Claude Code SDK
 - `src/git_ai_sync/file_watcher.py` — Filesystem change tracking with watchdog (debounce gate)
-- `src/git_ai_sync/git_operations.py` — Git operations: status, stage, commit, pull --rebase, push, conflict detection
+- `src/git_ai_sync/git_operations.py` — Git operations: status, stage, commit, pull (merge or rebase), push, conflict detection
 - `src/git_ai_sync/logging_setup.py` — Logging configuration
 
 ## Key Design Decisions
 
 - **Watch mode = poll + debounce with decay** — polls at interval, skips sync while files change, halves the required quiet window on each consecutive skip, and forces a sync once `max_wait` (`GIT_AI_SYNC_MAX_WAIT`, default 300 s) has elapsed since the last success
-- **Sync flow:** stage → commit → pull --rebase → push (always rebase, never merge)
+- **Sync flow:** stage → commit → pull --no-rebase → push (merge by default; `--strategy rebase` opts into rebase)
 - **Conflict resolution via Claude Code SDK** — spawns Claude to resolve merge conflicts
 - **All git operations are functions, not methods** — stateless, take `repo_path: Path` as first arg
 - **No database** — all state is in git

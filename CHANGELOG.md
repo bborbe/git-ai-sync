@@ -8,6 +8,14 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 * MINOR version when you add functionality in a backwards-compatible manner, and
 * PATCH version when you make backwards-compatible bug fixes.
 
+## Unreleased
+
+- feat: add a Go `git-ai-sync` binary with `sync` and `watch` subcommands, config, logging, git operations, the decaying quiet-window gate, a filesystem change tracker, and an instance lock, wired into the same poll / debounce / maximum-wait loop as the existing tool
+- test: Pin the quiet-window decay (30 s → 15 s → 7.5 s → 3.75 s plus the k = 0..10 halving property), the 300 s maximum-wait boundary, the success reset and the failure no-op, and the "at least" window boundary with an injected clock; cover the change tracker's ignore set (directories, `.git/`, `*~`, `.swp`, `.tmp`, dot-prefixed names) and its ordinary-file reset deterministically
+- feat: add the Go git operations (`FindRepo`, `HasChanges`, `StageAll`, `Commit`, `Pull` with merge or rebase, `Push`, `IsAheadOfRemote`, `GenerateCommitMessage`) and the stage → commit → pull → push sync cycle, including the watch-mode clean-worktree pull and the one-shot `sync` "no changes" short circuit, tested against local scratch repositories
+- chore: add the `test-go` and `precommit-go` Makefile targets for the Go module and correct the stale "always rebase, never merge" strategy note in `CLAUDE.md`
+- feat: add `internal/lock`, an exclusive non-blocking `flock` on `<repo>/.git-ai-sync.lock` that is created or corrected to mode 0600 on every acquisition, records the holder's PID, refuses a second instance with an `ErrLocked` error naming the holder, and leaves no stale lock after a crash; tests cover acquisition, contention, release, a stale file and mode correction
+
 ## v0.15.1
 
 - chore: restate the do-not-merge contract in the gate workflow
