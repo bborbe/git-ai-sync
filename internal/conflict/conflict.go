@@ -17,7 +17,11 @@ import (
 )
 
 // conflictMarkerPattern matches one conflict block and captures the two sides.
-var conflictMarkerPattern = regexp.MustCompile(`(?s)<{7} .*?\n(.*?)\n={7}\n(.*?)\n>{7} .*?\n`)
+// The sides are optional on purpose: a conflict where one side deleted the hunk
+// has an empty ours or theirs, and requiring a newline after each side made such
+// a block parse as zero markers — which sent it down the no-marker short-circuit
+// and staged it unchanged, committing conflict markers back into the repository.
+var conflictMarkerPattern = regexp.MustCompile(`(?s)<{7} [^\n]*\n(.*?)={7}\n(.*?)>{7} [^\n]*\n`)
 
 // conflictBlock is the ours/theirs pair parsed out of one conflict block.
 type conflictBlock struct {
@@ -113,6 +117,9 @@ func resolveContent(ctx context.Context, path string, original []byte) ([]byte, 
 	}
 
 	resolved := stripCodeFence(strings.TrimSpace(env.Result))
+	if len(parseConflictMarkers(resolved)) > 0 {
+		return nil, errors.Errorf(ctx, "resolution of %s still contains conflict markers; refusing to write", path)
+	}
 	if strings.HasSuffix(path, ".md") && bytes.HasPrefix(original, []byte("---")) && !strings.HasPrefix(resolved, "---") {
 		return nil, errors.Errorf(ctx, "resolution of %s dropped its markdown frontmatter; refusing to write", path)
 	}
@@ -178,7 +185,12 @@ func parseConflictMarkers(content string) []conflictBlock {
 	}
 	blocks := make([]conflictBlock, 0, len(matches))
 	for _, match := range matches {
-		blocks = append(blocks, conflictBlock{ours: match[1], theirs: match[2]})
+		// The pattern no longer consumes the newline that precedes each
+		// delimiter, so trim it here to keep the captured sides as content.
+		blocks = append(blocks, conflictBlock{
+			ours:   strings.TrimSuffix(match[1], "\n"),
+			theirs: strings.TrimSuffix(match[2], "\n"),
+		})
 	}
 	return blocks
 }

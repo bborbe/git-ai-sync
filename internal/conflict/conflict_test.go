@@ -342,3 +342,96 @@ func TestParseConflictMarkers(t *testing.T) {
 		t.Errorf("parseConflictMarkers returned %d blocks for marker-free content, want 0", len(blocks))
 	}
 }
+
+// TestParseConflictMarkersEmptySide covers the block shape the original pattern
+// missed: a conflict where one side deleted the hunk. Requiring a newline after
+// each side made such a block parse as zero markers, which sent it down the
+// no-marker short-circuit and committed the markers back to the repository.
+func TestParseConflictMarkersEmptySide(t *testing.T) {
+	cases := []struct {
+		name       string
+		content    string
+		wantBlocks int
+		wantOurs   string
+		wantTheirs string
+	}{
+		{"both sides", "<<<<<<< HEAD\nfrom-ours\n=======\nfrom-theirs\n>>>>>>> other\n", 1, "from-ours", "from-theirs"},
+		{"empty ours", "<<<<<<< HEAD\n=======\nfrom-theirs\n>>>>>>> other\n", 1, "", "from-theirs"},
+		{"empty theirs", "<<<<<<< HEAD\nfrom-ours\n=======\n>>>>>>> other\n", 1, "from-ours", ""},
+		{"both empty", "<<<<<<< HEAD\n=======\n>>>>>>> other\n", 1, "", ""},
+		{"both empty", "<<<<<<< HEAD\n=======\n>>>>>>> other\n", 1, "", ""},
+		{"no markers", "plain content\n", 0, "", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			blocks := parseConflictMarkers(tc.content)
+			if len(blocks) != tc.wantBlocks {
+				t.Fatalf("blocks = %d, want %d", len(blocks), tc.wantBlocks)
+			}
+			if tc.wantBlocks == 0 {
+				return
+			}
+			if blocks[0].ours != tc.wantOurs {
+				t.Errorf("ours = %q, want %q", blocks[0].ours, tc.wantOurs)
+			}
+			if blocks[0].theirs != tc.wantTheirs {
+				t.Errorf("theirs = %q, want %q", blocks[0].theirs, tc.wantTheirs)
+			}
+		})
+	}
+}
+
+// TestResolveFileEmptySideInvokesModel proves an empty-side conflict is not
+// mistaken for a marker-free file: the model must be called and the result
+// written. Under the old pattern this file was staged unchanged with its
+// markers intact.
+func TestResolveFileEmptySideInvokesModel(t *testing.T) {
+	f := newFixture(t)
+	writeFile(t, f.repo, "note.txt", "before\n<<<<<<< HEAD\n=======\nfrom-theirs\n>>>>>>> other\nafter\n")
+	writeResponse(t, envelope{
+		Type:    "result",
+		IsError: false,
+		Subtype: "success",
+		Result:  "before\nfrom-theirs\nafter\n",
+	})
+	writeStub(t, stubResponse())
+
+	if err := ResolveFile(context.Background(), f.repo, "note.txt"); err != nil {
+		t.Fatalf("ResolveFile: %v", err)
+	}
+
+	got := string(readFile(t, f.repo, "note.txt"))
+	if strings.Contains(got, "<<<<<<<") || strings.Contains(got, ">>>>>>>") {
+		t.Errorf("resolved file still has conflict markers: %q", got)
+	}
+	if !strings.Contains(got, "from-theirs") {
+		t.Errorf("resolved file missing the surviving side: %q", got)
+	}
+}
+
+// TestResolveFileRefusesLeftoverMarkers is the post-resolution guard: even when
+// the model is invoked, an answer that still carries conflict markers must never
+// be written. This is the defence the reference lacks.
+func TestResolveFileRefusesLeftoverMarkers(t *testing.T) {
+	f := newFixture(t)
+	original := "before\n<<<<<<< HEAD\nfrom-ours\n=======\nfrom-theirs\n>>>>>>> other\nafter\n"
+	writeFile(t, f.repo, "note.txt", original)
+	writeResponse(t, envelope{
+		Type:    "result",
+		IsError: false,
+		Subtype: "success",
+		Result:  "before\n<<<<<<< HEAD\nfrom-ours\n=======\nfrom-theirs\n>>>>>>> other\nafter\n",
+	})
+	writeStub(t, stubResponse())
+
+	err := ResolveFile(context.Background(), f.repo, "note.txt")
+	if err == nil {
+		t.Fatal("ResolveFile succeeded, want a refusal")
+	}
+	if !strings.Contains(err.Error(), "conflict markers") {
+		t.Errorf("error = %v, want it to name conflict markers", err)
+	}
+	if got := string(readFile(t, f.repo, "note.txt")); got != original {
+		t.Errorf("file was modified: %q", got)
+	}
+}
