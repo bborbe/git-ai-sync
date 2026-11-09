@@ -8,6 +8,10 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 * MINOR version when you add functionality in a backwards-compatible manner, and
 * PATCH version when you make backwards-compatible bug fixes.
 
+## Unreleased
+
+- feat: add a Go `git-ai-sync` binary with `sync` and `watch` subcommands, config, logging, git operations, the decaying quiet-window gate, a filesystem change tracker, and an instance lock, wired into the same poll / debounce / maximum-wait loop as the existing tool
+
 ## v0.15.1
 
 - chore: restate the do-not-merge contract in the gate workflow

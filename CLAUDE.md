@@ -108,13 +108,13 @@ Automatic Git repository sync with AI-powered conflict resolution (Python/uv).
 - `src/git_ai_sync/config.py` — Configuration via pydantic-settings (env vars)
 - `src/git_ai_sync/conflict_resolver.py` — AI-powered conflict resolution via Claude Code SDK
 - `src/git_ai_sync/file_watcher.py` — Filesystem change tracking with watchdog (debounce gate)
-- `src/git_ai_sync/git_operations.py` — Git operations: status, stage, commit, pull --rebase, push, conflict detection
+- `src/git_ai_sync/git_operations.py` — Git operations: status, stage, commit, pull (merge or rebase), push, conflict detection
 - `src/git_ai_sync/logging_setup.py` — Logging configuration
 
 ## Key Design Decisions
 
 - **Watch mode = poll + debounce with decay** — polls at interval, skips sync while files change, halves the required quiet window on each consecutive skip, and forces a sync once `max_wait` (`GIT_AI_SYNC_MAX_WAIT`, default 300 s) has elapsed since the last success
-- **Sync flow:** stage → commit → pull --rebase → push (always rebase, never merge)
+- **Sync flow:** stage → commit → pull --no-rebase → push (merge by default; `--strategy rebase` opts into rebase)
 - **Conflict resolution via Claude Code SDK** — spawns Claude to resolve merge conflicts
 - **All git operations are functions, not methods** — stateless, take `repo_path: Path` as first arg
 - **No database** — all state is in git

@@ -127,3 +127,14 @@ endif
 
 .PHONY: buca
 buca: build upload clean-image
+
+.PHONY: test-go precommit-go
+
+test-go:
+	go test ./... -count=1
+
+precommit-go:
+	@test -z "$$(gofmt -l cmd internal)" || (echo "gofmt needed:"; gofmt -l cmd internal; exit 1)
+	go vet ./...
+	go test ./... -count=1
+

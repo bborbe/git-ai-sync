@@ -1,6 +1,8 @@
 ---
-status: approved
+status: prompted
 approved: "2026-11-09T16:26:19Z"
+generating: "2026-11-09T18:47:02Z"
+prompted: "2026-11-09T19:09:18Z"
 branch: dark-factory/go-sync-loop-prototype
 ---
 
