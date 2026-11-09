@@ -1,6 +1,7 @@
 ---
-status: draft
-created: "2026-11-09"
+status: approved
+approved: "2026-11-09T16:26:19Z"
+branch: dark-factory/go-sync-loop-prototype
 ---
 
 ## Summary
