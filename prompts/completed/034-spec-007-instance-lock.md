@@ -1,7 +1,13 @@
 ---
-status: draft
+status: completed
 spec: [007-go-sync-loop-prototype]
+summary: 'Implemented and verified internal/lock: exclusive non-blocking flock on <repo>/.git-ai-sync.lock with 0600 correction, PID contents, ErrLocked refusal naming the holder, six covering tests, and a CHANGELOG entry'
+execution_id: 8557c7c1-90b2-5210-af4e-6b1dcc28efaa-exec-034-spec-007-instance-lock
+dark-factory-version: dev
 created: "2026-11-09T18:54:14Z"
+queued: "2026-11-09T19:38:04Z"
+started: "2026-11-09T19:38:05Z"
+completed: "2026-11-09T19:39:45Z"
 branch: dark-factory/go-sync-loop-prototype
 ---
 
