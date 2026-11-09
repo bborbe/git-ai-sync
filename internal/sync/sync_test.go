@@ -29,6 +29,7 @@ func newFixture(t *testing.T) fixture {
 	}
 	runGit(t, root, "init", "--bare", f.remote)
 	runGit(t, f.remote, "symbolic-ref", "HEAD", "refs/heads/master")
+	configure(t, f.remote)
 	runGit(t, root, "clone", f.remote, f.clone)
 	configure(t, f.clone)
 	writeFile(t, f.clone, "note.md", "hello\n")
@@ -56,6 +57,13 @@ func configure(t *testing.T, dir string) {
 	runGit(t, dir, "config", "user.email", "test@example.com")
 	runGit(t, dir, "config", "user.name", "Test User")
 	runGit(t, dir, "config", "commit.gpgsign", "false")
+	// Pin core.hooksPath to this repository's own hooks directory so a global
+	// core.hooksPath on the developer's machine cannot redirect git away from
+	// the hooks these tests write. --absolute-git-dir yields <clone>/.git for a
+	// clone and <bare> for a bare repository; --git-path hooks would return the
+	// effective (global) hooks path and reproduce the bug.
+	hooksPath := filepath.Join(runGit(t, dir, "rev-parse", "--absolute-git-dir"), "hooks")
+	runGit(t, dir, "config", "--local", "core.hooksPath", hooksPath)
 }
 
 func runGit(t *testing.T, dir string, args ...string) string {
