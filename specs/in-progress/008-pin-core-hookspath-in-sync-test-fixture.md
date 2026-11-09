@@ -1,6 +1,6 @@
 ---
 status: approved
-approved: "2026-11-09T21:50:07Z"
+approved: "2026-11-09T21:55:17Z"
 branch: dark-factory/pin-core-hookspath-in-sync-test-fixture
 ---
 
@@ -43,6 +43,7 @@ The consequence is worse than two red tests. `go test ./...` is permanently red 
 - [ ] The two tests still exercise what they claim — probe: on a machine whose global `core.hooksPath` points outside the repository, reverting the fixture change makes exactly `TestCommitRefusalStillPulls` and `TestPushRejectedKeepsLocalCommit` fail again, so the fix is not achieved by deleting or skipping them. (On a clean CI config the revert is a no-op; the machine condition is part of the criterion.)
 - [ ] The fix is local to the test fixture, not to the machine — probe: `git diff --name-only origin/master` lists no file outside `internal/sync/*_test.go` and any shared test helper under `internal/sync/`.
 - [ ] The suite passes both with and without a clean global config — probe: `go test ./... -count=1` exits 0 both normally and with `GIT_CONFIG_GLOBAL=/dev/null`, so the fix does not merely invert which environment it depends on.
+- [ ] The fix is achieved by pinning the fixture's own config, not by making the tests ignore the global one — probe: `grep -rn 'GIT_CONFIG_GLOBAL' internal/sync/` returns 0 lines, and `grep -c 'hooksPath' internal/sync/sync_test.go` is at least 1. This is the negative evidence for the laziest implementation: setting `GIT_CONFIG_GLOBAL` in the test (or `TestMain`) also turns the suite green on a hostile machine, and it would satisfy every other criterion here while leaving the fixture just as environment-dependent as before. A constraint stated only in prose is not enforced.
 
 ## Verification
 
@@ -60,7 +61,7 @@ The consequence is worse than two red tests. `go test ./...` is permanently red 
 
 ### Operator-executable (runs on the host after merge)
 
-- `cd ~/Documents/workspaces/git-ai-sync && go test ./... -count=1` — exits 0 with the developer's real global git config. This is the only check that proves the fix, and it runs after merge.
+- `cd ~/Documents/workspaces/git-ai-sync && go test ./... -count=1` — exits 0 with the developer's real global git config. This confirms the fix against the real machine, independent of the simulated hostile config the container rung uses, and it runs after merge.
 
 ## Desired Behavior
 
@@ -74,7 +75,7 @@ Running the suite on a machine with `core.hooksPath` set globally:
 
 - Test files only. The diff may touch `internal/sync/sync_test.go` and any shared test helper under `internal/sync/`. It must not touch `internal/sync/sync.go`, any other production file, the `Makefile`, `src/`, `tests/`, `pyproject.toml` or `uv.lock`.
 - `core.hooksPath` must be pinned as an **absolute** path — a relative value resolves unpredictably and would reintroduce the same class of bug. Derive it generically so the same helper is correct for both a normal clone and a bare repo: `git rev-parse --absolute-git-dir` returns `<clone>/.git` for a clone and `<remote>` for a bare repo, so joining `hooks` onto it yields `<clone>/.git/hooks` and `<remote>/hooks`. Do **not** use `git rev-parse --git-path hooks` — it returns the *effective* `core.hooksPath`, i.e. the very global value being overridden, so it reproduces the bug.
-- `configure` has three callers, not two: `newFixture` for the clone, `addRemoteCommit` for the intermediate clone it creates, and whatever pins the bare remote. Whatever helper is chosen must keep all of them correct, and a signature change must update every call site so the package still builds.
+- `configure` has **two** callers today — `newFixture` for the clone (`sync_test.go:33`) and `addRemoteCommit` for the intermediate clone it creates (`:46`). The fix adds a third for the bare remote. Whatever helper is chosen must keep all of them correct, and a signature change must update every call site so the package still builds.
 - No test may be deleted, skipped, renamed or have its assertions relaxed. On a machine whose global `core.hooksPath` points outside the repository, reverting this change must make exactly `TestCommitRefusalStillPulls` and `TestPushRejectedKeepsLocalCommit` fail again. (State the machine condition explicitly — on a clean CI config reverting is a no-op, so the revert is not a universal break.)
 - The machine's global git configuration must not be modified, and `GIT_CONFIG_GLOBAL` must not be set **in the test code**. A one-off verification-shell run may set it to simulate a hostile global config — that is the behavioural check above, not a test dependency.
 - Nothing may touch `.github/workflows/` — the CI GitHub App holds no `workflows` permission and any commit under `.github/` is rejected at push.
