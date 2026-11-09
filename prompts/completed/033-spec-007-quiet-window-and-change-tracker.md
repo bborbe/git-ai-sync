@@ -1,7 +1,13 @@
 ---
-status: draft
+status: completed
 spec: [007-go-sync-loop-prototype]
+summary: Implemented and verified internal/quietwindow (decayed window, tracker, pure decision) and internal/changetracker (fsnotify tracking with the ignore set and injected clock) with deterministic unit tests, and extended the Unreleased changelog.
+execution_id: 8557c7c1-90b2-5210-af4e-6b1dcc28efaa-exec-033-spec-007-quiet-window-and-change-tracker
+dark-factory-version: dev
 created: "2026-11-09T18:54:14Z"
+queued: "2026-11-09T19:33:49Z"
+started: "2026-11-09T19:33:51Z"
+completed: "2026-11-09T19:35:32Z"
 branch: dark-factory/go-sync-loop-prototype
 ---
 
