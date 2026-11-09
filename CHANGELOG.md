@@ -8,7 +8,7 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 * MINOR version when you add functionality in a backwards-compatible manner, and
 * PATCH version when you make backwards-compatible bug fixes.
 
-## Unreleased
+## v0.16.0
 
 - feat: add a Go `git-ai-sync` binary with `sync` and `watch` subcommands, config, logging, git operations, the decaying quiet-window gate, a filesystem change tracker, and an instance lock, wired into the same poll / debounce / maximum-wait loop as the existing tool
 - test: Pin the quiet-window decay (30 s → 15 s → 7.5 s → 3.75 s plus the k = 0..10 halving property), the 300 s maximum-wait boundary, the success reset and the failure no-op, and the "at least" window boundary with an injected clock; cover the change tracker's ignore set (directories, `.git/`, `*~`, `.swp`, `.tmp`, dot-prefixed names) and its ordinary-file reset deterministically
