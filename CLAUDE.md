@@ -72,6 +72,7 @@ Automatic Git repository sync with AI-powered conflict resolution (Python/uv).
 - Run `dark-factory prompt approve` / `dark-factory spec approve` yourself once the prompt/spec passed its auditor (global rule execution-phase-no-reask)
 - **Before starting daemon** — run `dark-factory status` first to check if one is already running. Only start if not running.
 - **Start daemon in background** — use Bash tool with `run_in_background: true` (not foreground, not detached with `&`)
+- **Never touch `.github/workflows/`** — neither in a prompt, a spec AC, nor a direct edit. The cluster agent authenticates as a GitHub App that holds no `workflows` permission, so any commit that creates or updates a workflow file is rejected at push (`refusing to allow a GitHub App to create or update workflow … without 'workflows' permission`) and the whole job fails after the code has been written and lost. CI wiring is an **operator step**: the operator lands `.github/workflows/*` with their own credentials, and the agent's diff must not contain it. A spec that requires a workflow change in its own diff cannot be satisfied by this pipeline.
 
 ## Development Standards
 
