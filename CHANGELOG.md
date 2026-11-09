@@ -8,6 +8,10 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 * MINOR version when you add functionality in a backwards-compatible manner, and
 * PATCH version when you make backwards-compatible bug fixes.
 
+## Unreleased
+
+- feat: add `internal/conflict`, a fail-closed Claude CLI conflict resolver (JSON envelope with `is_error` / empty / authentication checks, markdown frontmatter guard, code-fence stripping, atomic single-file write and staging) plus the exported `internal/git` conflict helpers it needs
+
 ## v0.16.1
 
 - test: Pin `core.hooksPath` to each repository's own absolute hooks directory in the `internal/sync` fixture, so `TestCommitRefusalStillPulls` and `TestPushRejectedKeepsLocalCommit` no longer depend on the developer's global git config

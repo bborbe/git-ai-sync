@@ -1,6 +1,8 @@
 ---
-status: approved
+status: prompted
 approved: "2026-11-09T23:14:51Z"
+generating: "2026-11-09T23:16:40Z"
+prompted: "2026-11-09T23:29:27Z"
 branch: feat/port-conflict-resolution
 ---
 
