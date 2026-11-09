@@ -11,6 +11,7 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 ## Unreleased
 
 - feat: add `internal/conflict`, a fail-closed Claude CLI conflict resolver (JSON envelope with `is_error` / empty / authentication checks, markdown frontmatter guard, code-fence stripping, atomic single-file write and staging) plus the exported `internal/git` conflict helpers it needs
+- feat: add `git-ai-sync resolve [repo-path]`, which resolves every conflicted file through the Claude CLI, continues the merge or rebase, and pushes under the same instance lock as `sync`
 
 ## v0.16.1
 

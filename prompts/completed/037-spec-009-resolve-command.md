@@ -1,7 +1,13 @@
 ---
-status: draft
+status: completed
 spec: [009-port-conflict-resolution]
+summary: Added the `git-ai-sync resolve [path]` subcommand with instance lock, conflict-state and empty-conflict guards, per-file continue-on-failure resolution, merge/rebase continuation, push, and the full local bare-remote test suite plus a CHANGELOG entry.
+execution_id: 078aba9b-094c-5f23-8b62-8bf286b1307c-exec-037-spec-009-resolve-command
+dark-factory-version: dev
 created: "2026-11-09T23:20:11Z"
+queued: "2026-11-09T23:38:11Z"
+started: "2026-11-09T23:38:13Z"
+completed: "2026-11-09T23:40:21Z"
 branch: feat/port-conflict-resolution
 ---
 
