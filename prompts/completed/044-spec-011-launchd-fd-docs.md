@@ -1,7 +1,13 @@
 ---
-status: draft
+status: completed
 spec: [011-launchd-file-descriptor-limits]
+summary: Updated docs/launchd-service.md with the 65536/245760 limits and fsnotify/64,945-file rationale, and aligned the CHANGELOG Unreleased fix bullet; make precommit passes.
+execution_id: 2615257c-2e6a-5403-84b5-f7ea650cf3d6-exec-044-spec-011-launchd-fd-docs
+dark-factory-version: dev
 created: "2026-11-10T13:10:00Z"
+queued: "2026-11-10T13:21:26Z"
+started: "2026-11-10T13:21:28Z"
+completed: "2026-11-10T13:22:23Z"
 branch: dark-factory/launchd-file-descriptor-limits
 ---
 

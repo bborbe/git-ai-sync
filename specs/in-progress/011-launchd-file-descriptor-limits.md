@@ -1,8 +1,9 @@
 ---
-status: prompted
+status: verifying
 approved: "2026-11-10T13:02:22Z"
 generating: "2026-11-10T13:09:05Z"
 prompted: "2026-11-10T13:16:20Z"
+verifying: "2026-11-10T13:21:04Z"
 branch: dark-factory/launchd-file-descriptor-limits
 ---
 

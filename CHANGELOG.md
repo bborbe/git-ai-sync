@@ -10,7 +10,7 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- fix: Raise the rendered launchd `NumberOfFiles` limits from 4096 / 8192 to 65536 / 245760 so the supervisor's per-watched-path file descriptors fit the twelve-vault / 64,945-file workload instead of dying at startup with `too many open files`
+- fix: raise the rendered launchd `NumberOfFiles` limits to 65536 soft / 245760 hard, so the twelve-vault supervisor can watch 64,945 files instead of failing every loop with `too many open files`
 
 ## v0.18.0
 

@@ -83,8 +83,8 @@ The plist is a frozen contract with no tunable knobs:
 - **ThrottleInterval**: `30` seconds, so a crash loop cannot relaunch every ten
   seconds
 - **ProcessType**: `Standard`, the value for a long-running daemon
-- **SoftResourceLimits**: `NumberOfFiles` 4096
-- **HardResourceLimits**: `NumberOfFiles` 8192
+- **SoftResourceLimits**: `NumberOfFiles` 65536
+- **HardResourceLimits**: `NumberOfFiles` 245760
 - **EnvironmentVariables**: an explicit `PATH` only
   (`/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin`), because
   launchd's default `PATH` does not include `/usr/local/bin`
@@ -92,6 +92,24 @@ The plist is a frozen contract with no tunable knobs:
   `~/Library/Logs/git-ai-sync/git-ai-sync.log`
 - **No credentials**: the plist carries no pushgateway URL, username or password.
   Everything secret stays in the `0600` config file.
+
+`NumberOfFiles` is sized for the workload, not for the launchd baseline. The
+change tracker (`internal/changetracker`) is built on `fsnotify`, which on macOS
+backs each watched path with a file descriptor; the twelve Obsidian vaults hold
+64,945 files between them (measured 2026-11-10), so the supervisor needs tens of
+thousands of descriptors. At 4096 every vault loop failed at startup with
+`too many open files` while `launchctl list` still reported the agent as
+`running`, so nothing synced and the failure was invisible from the status
+output. The launchd baseline's 4096-file rule is a floor written for ordinary
+services that hold a handful of sockets and log handles, not a fit for this
+process.
+
+The soft limit is the one that governs what the process may open; the hard
+limit must stay at or below `kern.maxfilesperproc` (245760 on the reference
+host), because launchd silently clamps a larger value. If the vault set grows
+past the soft limit, raise the two literals in `internal/launchd/launchd.go`
+and re-release — the next `install` overwrites a hand-edited copy of the
+installed plist.
 
 The plist deliberately sets no `NumberOfProcesses` and no `ResidentSetSize`
 limit; the metrics heartbeat and the stall alert are the memory signal instead.
