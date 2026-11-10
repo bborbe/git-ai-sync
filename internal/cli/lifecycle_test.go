@@ -37,10 +37,25 @@ func stubLaunchctl(t *testing.T) string {
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		t.Fatalf("create launchctl bin directory: %v", err)
 	}
+	stateDir := filepath.Join(dir, "state")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatalf("create launchctl state directory: %v", err)
+	}
 	script := "#!/bin/sh\n" +
 		"echo \"$@\" >> \"$LAUNCHCTL_LOG\"\n" +
-		"if [ \"$1\" = \"print\" ] && [ -n \"$LAUNCHCTL_PRINT_FAIL\" ]; then\n" +
-		"  exit 1\n" +
+		"if [ \"$1\" = \"bootout\" ]; then\n" +
+		"  : > \"$LAUNCHCTL_STATE/unloaded\"\n" +
+		"fi\n" +
+		"if [ \"$1\" = \"bootstrap\" ]; then\n" +
+		"  rm -f \"$LAUNCHCTL_STATE/unloaded\"\n" +
+		"fi\n" +
+		"if [ \"$1\" = \"print\" ]; then\n" +
+		"  if [ -n \"$LAUNCHCTL_PRINT_FAIL\" ]; then\n" +
+		"    exit 1\n" +
+		"  fi\n" +
+		"  if [ -f \"$LAUNCHCTL_STATE/unloaded\" ]; then\n" +
+		"    exit 1\n" +
+		"  fi\n" +
 		"fi\n" +
 		"exit 0\n"
 	scriptPath := filepath.Join(binDir, "launchctl")
@@ -49,6 +64,7 @@ func stubLaunchctl(t *testing.T) string {
 	}
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("LAUNCHCTL_LOG", logPath)
+	t.Setenv("LAUNCHCTL_STATE", stateDir)
 	return logPath
 }
 
@@ -272,6 +288,8 @@ func TestStatusReportsVaultsAndFreshness(t *testing.T) {
 	requireContains(t, out, vaultB)
 	if age, ok := parseMetricsAge(t, out); !ok {
 		t.Fatalf("status has no last metrics push line: %q", out)
+	} else if age <= 0 {
+		t.Errorf("last metrics push age = %v, want a positive duration", age)
 	} else if age >= 60*time.Second {
 		t.Errorf("last metrics push age = %v, want under 60s", age)
 	}
@@ -304,6 +322,37 @@ func TestStatusReportsVaultsAndFreshness(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), launchd.Label) {
 		t.Errorf("status error does not name the label: %v", err)
+	}
+}
+
+func TestStatusReportsNeverForZeroPush(t *testing.T) {
+	home := t.TempDir()
+	stubLaunchctl(t)
+	vault := t.TempDir()
+	writeConfig(t, home, fmt.Sprintf("vaults:\n  - %s\n", vault))
+
+	statePath := filepath.Join(home, ".local", "state", "git-ai-sync", "status.json")
+	if err := os.MkdirAll(filepath.Dir(statePath), 0o755); err != nil {
+		t.Fatalf("create state directory: %v", err)
+	}
+	state := `{"last_metrics_push":"0001-01-01T00:00:00Z","vaults":{}}`
+	if err := os.WriteFile(statePath, []byte(state), 0o600); err != nil {
+		t.Fatalf("write state file: %v", err)
+	}
+
+	out, err := runStatus(t, home)
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	found := false
+	for _, line := range strings.Split(out, "\n") {
+		if line == "last metrics push: never" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("status has no exact %q line: %q", "last metrics push: never", out)
 	}
 }
 

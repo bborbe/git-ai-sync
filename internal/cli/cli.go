@@ -208,6 +208,8 @@ func newStatusCommand(ctx context.Context) *cobra.Command {
 				} else {
 					return errors.Wrapf(runCtx, err, "read state file")
 				}
+			} else if state.LastMetricsPush.IsZero() {
+				fmt.Fprintln(out, "last metrics push: never")
 			} else {
 				age := time.Since(state.LastMetricsPush)
 				if age < 0 {

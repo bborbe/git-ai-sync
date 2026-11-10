@@ -2,11 +2,16 @@ package launchd
 
 import (
 	"bytes"
+	"context"
 	"encoding/xml"
+	stderrors "errors"
 	"io"
+	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bborbe/git-ai-sync/internal/config"
 )
@@ -127,6 +132,263 @@ func TestRenderPlistRequiresPaths(t *testing.T) {
 	opts.Config.ConfigPath = ""
 	if _, err := RenderPlist(opts); err == nil {
 		t.Error("RenderPlist accepted an empty config path")
+	}
+}
+
+func writeLaunchctlStub(t *testing.T, body string) string {
+	t.Helper()
+	dir := t.TempDir()
+	binDir := filepath.Join(dir, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatalf("create launchctl bin directory: %v", err)
+	}
+	stateDir := filepath.Join(dir, "state")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatalf("create launchctl state directory: %v", err)
+	}
+	logPath := filepath.Join(dir, "launchctl.log")
+	if err := os.WriteFile(logPath, nil, 0o600); err != nil {
+		t.Fatalf("create launchctl log: %v", err)
+	}
+	script := "#!/bin/sh\n" +
+		"echo \"$*\" >> \"" + logPath + "\"\n" +
+		body
+	if err := os.WriteFile(filepath.Join(binDir, "launchctl"), []byte(script), 0o755); err != nil {
+		t.Fatalf("write launchctl stub: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("LAUNCHCTL_STATE", stateDir)
+	return logPath
+}
+
+func launchctlCalls(t *testing.T, logPath string) []string {
+	t.Helper()
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read launchctl log: %v", err)
+	}
+	var calls []string
+	for _, line := range strings.Split(string(data), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			calls = append(calls, line)
+		}
+	}
+	return calls
+}
+
+// installOptions returns Options pointing at a real 0600 config file so
+// config.CheckPermissions passes, with a discard logger.
+func installOptions(t *testing.T, home string) Options {
+	t.Helper()
+	configPath := filepath.Join(home, "config.yaml")
+	if err := os.WriteFile(configPath, []byte("vaults: []\n"), 0o600); err != nil {
+		t.Fatalf("write config file: %v", err)
+	}
+	if err := os.Chmod(configPath, 0o600); err != nil {
+		t.Fatalf("chmod config file: %v", err)
+	}
+	opts := testOptions(home)
+	opts.Config.ConfigPath = configPath
+	opts.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	return opts
+}
+
+// print exits non-zero from its third invocation onward; bootstrap succeeds.
+const raceBody = "" +
+	"if [ \"$1\" = \"print\" ]; then\n" +
+	"  n=0\n" +
+	"  if [ -f \"$LAUNCHCTL_STATE/print-count\" ]; then n=$(cat \"$LAUNCHCTL_STATE/print-count\"); fi\n" +
+	"  n=$((n+1))\n" +
+	"  echo \"$n\" > \"$LAUNCHCTL_STATE/print-count\"\n" +
+	"  if [ \"$n\" -ge 3 ]; then exit 1; fi\n" +
+	"fi\n" +
+	"exit 0\n"
+
+// print reports absent; the first bootstrap exits 5, the second exits 0.
+const bootstrapFailOnceBody = "" +
+	"if [ \"$1\" = \"print\" ]; then exit 1; fi\n" +
+	"if [ \"$1\" = \"bootstrap\" ]; then\n" +
+	"  n=0\n" +
+	"  if [ -f \"$LAUNCHCTL_STATE/bootstrap-count\" ]; then n=$(cat \"$LAUNCHCTL_STATE/bootstrap-count\"); fi\n" +
+	"  n=$((n+1))\n" +
+	"  echo \"$n\" > \"$LAUNCHCTL_STATE/bootstrap-count\"\n" +
+	"  if [ \"$n\" -eq 1 ]; then echo \"Bootstrap failed: 5: Input/output error\"; exit 5; fi\n" +
+	"fi\n" +
+	"exit 0\n"
+
+// print reports absent; every bootstrap exits 5.
+const bootstrapAlwaysFailsBody = "" +
+	"if [ \"$1\" = \"print\" ]; then exit 1; fi\n" +
+	"if [ \"$1\" = \"bootstrap\" ]; then echo \"Bootstrap failed: 5: Input/output error\"; exit 5; fi\n" +
+	"exit 0\n"
+
+// print always reports loaded; bootstrap always exits 5 (never reached).
+const printLoadedBootstrapFailsBody = "" +
+	"if [ \"$1\" = \"print\" ]; then exit 0; fi\n" +
+	"if [ \"$1\" = \"bootstrap\" ]; then echo \"Bootstrap failed: 5: Input/output error\"; exit 5; fi\n" +
+	"exit 0\n"
+
+func TestInstallWaitsForTeardownThenBootstraps(t *testing.T) {
+	home := t.TempDir()
+	logPath := writeLaunchctlStub(t, raceBody)
+
+	if err := Install(context.Background(), installOptions(t, home)); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	calls := launchctlCalls(t, logPath)
+	bootoutIndex, firstPrint, lastPrint, bootstrapIndex := -1, -1, -1, -1
+	printCount := 0
+	for index, call := range calls {
+		if strings.HasPrefix(call, "bootout ") && bootoutIndex < 0 {
+			bootoutIndex = index
+		}
+		if strings.HasPrefix(call, "print ") {
+			printCount++
+			if firstPrint < 0 {
+				firstPrint = index
+			}
+			lastPrint = index
+		}
+		if strings.HasPrefix(call, "bootstrap ") && bootstrapIndex < 0 {
+			bootstrapIndex = index
+		}
+	}
+	if bootoutIndex < 0 {
+		t.Fatalf("no bootout call: %q", calls)
+	}
+	if bootstrapIndex < 0 {
+		t.Fatalf("no bootstrap call: %q", calls)
+	}
+	if printCount < 3 {
+		t.Errorf("print call count = %d, want at least 3: %q", printCount, calls)
+	}
+	if !(bootoutIndex < firstPrint && firstPrint <= lastPrint && lastPrint < bootstrapIndex) {
+		t.Errorf("call order is not bootout < print... < bootstrap: %q", calls)
+	}
+}
+
+func TestUninstallThenInstallConverges(t *testing.T) {
+	home := t.TempDir()
+	logPath := writeLaunchctlStub(t, raceBody)
+	opts := installOptions(t, home)
+
+	plistPath := PlistPath(home)
+	if err := os.MkdirAll(filepath.Dir(plistPath), 0o755); err != nil {
+		t.Fatalf("create launch agent directory: %v", err)
+	}
+	if err := os.WriteFile(plistPath, []byte("stale"), 0o644); err != nil {
+		t.Fatalf("seed stale plist: %v", err)
+	}
+
+	if err := Uninstall(context.Background(), opts); err != nil {
+		t.Fatalf("Uninstall: %v", err)
+	}
+	before := len(launchctlCalls(t, logPath))
+
+	if err := Install(context.Background(), opts); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	installLeg := launchctlCalls(t, logPath)[before:]
+	if len(installLeg) == 0 {
+		t.Fatal("install leg recorded no launchctl calls")
+	}
+	if !strings.HasPrefix(installLeg[0], "bootout ") {
+		t.Errorf("install leg does not start with bootout: %q", installLeg)
+	}
+	if !strings.HasPrefix(installLeg[len(installLeg)-1], "bootstrap ") {
+		t.Errorf("install leg does not end with bootstrap: %q", installLeg)
+	}
+	printCount, bootstrapCount := 0, 0
+	for _, call := range installLeg {
+		if strings.HasPrefix(call, "print ") {
+			printCount++
+		}
+		if strings.HasPrefix(call, "bootstrap ") {
+			bootstrapCount++
+		}
+	}
+	if printCount < 1 {
+		t.Errorf("install leg recorded no print call: %q", installLeg)
+	}
+	if bootstrapCount != 1 {
+		t.Errorf("install leg bootstrap count = %d, want 1: %q", bootstrapCount, installLeg)
+	}
+}
+
+func TestInstallRetriesBootstrapOnce(t *testing.T) {
+	home := t.TempDir()
+	logPath := writeLaunchctlStub(t, bootstrapFailOnceBody)
+
+	if err := Install(context.Background(), installOptions(t, home)); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	bootstrapCount := 0
+	for _, call := range launchctlCalls(t, logPath) {
+		if strings.HasPrefix(call, "bootstrap ") {
+			bootstrapCount++
+		}
+	}
+	if bootstrapCount != 2 {
+		t.Errorf("bootstrap count = %d, want 2", bootstrapCount)
+	}
+}
+
+func TestInstallFailsWhenBootstrapKeepsFailing(t *testing.T) {
+	home := t.TempDir()
+	writeLaunchctlStub(t, bootstrapAlwaysFailsBody)
+
+	err := Install(context.Background(), installOptions(t, home))
+	if err == nil {
+		t.Fatal("Install succeeded while every bootstrap failed")
+	}
+	if !strings.Contains(err.Error(), "launchctl bootstrap gui/") {
+		t.Errorf("error does not name the manual command: %v", err)
+	}
+}
+
+func TestInstallBoundsTeardownWait(t *testing.T) {
+	home := t.TempDir()
+	writeLaunchctlStub(t, printLoadedBootstrapFailsBody)
+	opts := installOptions(t, home)
+	opts.TeardownTimeout = 200 * time.Millisecond
+
+	start := time.Now()
+	err := Install(context.Background(), opts)
+	elapsed := time.Since(start)
+	if err == nil {
+		t.Fatal("Install succeeded while the job never unloaded")
+	}
+	if elapsed >= 2*time.Second {
+		t.Errorf("Install took %v, want under 2s", elapsed)
+	}
+	if !strings.Contains(err.Error(), "launchctl bootstrap gui/") {
+		t.Errorf("error does not name the manual command: %v", err)
+	}
+}
+
+func TestInstallReturnsPromptlyWhenContextCancelled(t *testing.T) {
+	home := t.TempDir()
+	writeLaunchctlStub(t, printLoadedBootstrapFailsBody)
+	opts := installOptions(t, home)
+	opts.TeardownTimeout = 10 * time.Second
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	start := time.Now()
+	err := Install(ctx, opts)
+	elapsed := time.Since(start)
+	if err == nil {
+		t.Fatal("Install succeeded with a cancelled context")
+	}
+	if !stderrors.Is(err, context.Canceled) {
+		t.Errorf("error = %v, want context.Canceled", err)
+	}
+	if elapsed >= 2*time.Second {
+		t.Errorf("Install took %v, want under 2s", elapsed)
 	}
 }
 
