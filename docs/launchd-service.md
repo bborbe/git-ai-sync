@@ -1,165 +1,179 @@
-# Run git-ai-sync as a macOS launchd service
+# Run the git-ai-sync supervisor as a macOS launchd service
 
-Use this setup when you want `git-ai-sync watch ...` to stay running in the background across logins and reboots on macOS.
+One launchd user agent runs `git-ai-sync supervise --config <path>` for every
+configured vault. The agent is named `com.github.bborbe.git-ai-sync`, and the
+vault set lives in one `0600` config file instead of one plist per vault.
 
-## Why use a launchd service?
+## Why one agent?
 
-`git-ai-sync watch` is intended to run continuously. A launchd user agent gives you:
+`git-ai-sync supervise` runs one sync loop per configured vault inside a single
+process. A launchd user agent gives you:
 
 - automatic startup after login
-- automatic restart if the watcher exits
-- one service per repository
-- easier status and log inspection
+- automatic restart if the supervisor exits
+- one label, one plist, one log file
+- one config file to edit when the vault set or the cadence changes
 
 ## Prerequisites
 
-Install the tool first:
-
-```bash
-uv tool install git+https://github.com/bborbe/git-ai-sync
-```
-
-Or upgrade an existing install:
-
-```bash
-uv tool upgrade git-ai-sync
-```
-
-Verify the binary exists and note the path:
+Install the binary on `PATH` (the operator installs `/usr/local/bin/git-ai-sync`
+with their own credentials) and verify it:
 
 ```bash
 command -v git-ai-sync
+git-ai-sync --version
 ```
 
-## 1. Create a per-vault launch agent
-
-The `setup-launchd` subcommand writes the plist and registers the agent for you — there is no hand-written plist. Example for a repository at `~/Documents/Obsidian/Personal`:
+Write the config file at `~/.config/git-ai-sync/config.yaml` with mode `0600`.
+It holds the pushgateway password, so it must not be group- or world-readable:
 
 ```bash
-git-ai-sync setup-launchd ~/Documents/Obsidian/Personal
+chmod 0600 ~/.config/git-ai-sync/config.yaml
 ```
 
-This generates `~/Library/LaunchAgents/com.github.bborbe.git-ai-sync-<label>.plist` (label derivation below), bootstraps the job into your GUI launchd domain (`gui/$(id -u)`), and kickstarts the watcher.
+The file names the absolute vault paths and the shared settings:
 
-Tear the agent down with the `remove-launchd` subcommand:
+```yaml
+vaults:
+  - /Users/me/Documents/Obsidian/Personal
+  - /Users/me/Documents/Obsidian/Work
+interval: 30
+max_wait: 300
+strategy: merge
+commit_prefix: auto
+log_level: INFO
+stall_threshold: 10
+attention_script: /Users/me/bin/attention-ask.py
+attention_store_url: http://localhost:18080
+state_file: /Users/me/.local/state/git-ai-sync/status.json
+pushgateway:
+  url: https://pushgateway.example.com
+  username: git-ai-sync
+  password: <secret>
+```
+
+`install` refuses a config file any other user can read, naming the permission
+problem; `0600` proceeds.
+
+## Install the agent
 
 ```bash
-git-ai-sync remove-launchd ~/Documents/Obsidian/Personal
+git-ai-sync install
 ```
 
-`remove-launchd` boots the job out of launchd and deletes the plist.
+`install`:
 
-### Idempotence
+1. checks the config file mode and refuses a group- or world-accessible file;
+2. creates `~/Library/Logs/git-ai-sync/`;
+3. writes `~/Library/LaunchAgents/com.github.bborbe.git-ai-sync.plist`;
+4. boots the job out, then bootstraps it into `gui/$(id -u)`.
 
-Both commands are safe to re-run:
+It is idempotent: a second `install` writes a byte-identical plist and exits 0,
+so it is also the way to reload after a config change or a binary upgrade.
 
-- re-running `setup-launchd` rewrites a byte-identical plist and tolerates an already-loaded job (no error)
-- `remove-launchd` on a directory that was never set up exits 0 — there is nothing to remove, and removal is best-effort (a failed `launchctl bootout` is logged as a warning, never fatal)
+### The plist `install` produces
 
-### Label derivation
+The plist is a frozen contract with no tunable knobs:
 
-The label is the last path component of the vault directory, lowercased, with every run of non-alphanumeric characters collapsed to a single hyphen (leading/trailing hyphens stripped):
+- **Label**: `com.github.bborbe.git-ai-sync`
+- **ProgramArguments**: the symlink-resolved `git-ai-sync` binary, then
+  `supervise --config <resolved config path>`
+- **KeepAlive**: `true` — launchd restarts the supervisor if it exits
+- **RunAtLoad**: `true` — starts immediately after registration and at login
+- **ThrottleInterval**: `30` seconds, so a crash loop cannot relaunch every ten
+  seconds
+- **ProcessType**: `Standard`, the value for a long-running daemon
+- **SoftResourceLimits**: `NumberOfFiles` 4096
+- **HardResourceLimits**: `NumberOfFiles` 8192
+- **EnvironmentVariables**: an explicit `PATH` only
+  (`/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin`), because
+  launchd's default `PATH` does not include `/usr/local/bin`
+- **StandardOutPath / StandardErrorPath**:
+  `~/Library/Logs/git-ai-sync/git-ai-sync.log`
+- **No credentials**: the plist carries no pushgateway URL, username or password.
+  Everything secret stays in the `0600` config file.
 
-- `~/Documents/Obsidian/Personal` → `personal`
-- `~/Documents/Obsidian/My Vault` → `my-vault`
-- `~/Notes/Work-Notes` → `work-notes`
+The plist deliberately sets no `NumberOfProcesses` and no `ResidentSetSize`
+limit; the metrics heartbeat and the stall alert are the memory signal instead.
 
-So for a vault whose last component is `Personal` you can predict:
-
-- plist: `~/Library/LaunchAgents/com.github.bborbe.git-ai-sync-personal.plist`
-- log: `/tmp/git-ai-sync-personal.log`
-
-### The plist shape `setup-launchd` produces
-
-The command always generates the same frozen plist — this is the contract, and there are no tunable knobs:
-
-- **Label**: `com.github.bborbe.git-ai-sync-<label>`
-- **ProgramArguments**: the resolved `git-ai-sync` binary path, then `watch <vault-dir> --interval 30 --strategy merge` (interval and strategy are fixed by design)
-- **KeepAlive**: true — launchd restarts the watcher if it exits
-- **RunAtLoad**: true — starts immediately after registration and at login
-- **StandardOutPath / StandardErrorPath**: `/tmp/git-ai-sync-<label>.log`
-- **SoftResourceLimits**: `NumberOfFiles` 1024, `ResidentSetSize` 536870912 (512 MB)
-- **HardResourceLimits**: `NumberOfFiles` 2048, `ResidentSetSize` 1073741824 (1 GB)
-- **EnvironmentVariables**: `GIT_AI_SYNC_PUSHGATEWAY_URL`, `GIT_AI_SYNC_PUSHGATEWAY_USERNAME`, `GIT_AI_SYNC_PUSHGATEWAY_PASSWORD`, `GIT_AI_SYNC_MAX_WAIT`, `GIT_AI_SYNC_STALL_THRESHOLD`, `GIT_AI_SYNC_ATTENTION_SCRIPT`, `ATTENTION_STORE_URL` — each is passed through only if it was set when `setup-launchd` ran. `ATTENTION_STORE_URL` deliberately has no `GIT_AI_SYNC_` prefix because the posting script reads that same name
-
-## 2. Repeat for each repository
-
-Create one launch agent per repository — run `git-ai-sync setup-launchd <vault-dir>` once per vault. Each vault gets its own label, plist, and log file.
-
-## 3. Verify the watcher is running
-
-Check launchd status:
+## Check status
 
 ```bash
-launchctl print gui/$(id -u)/com.github.bborbe.git-ai-sync-<label>
+git-ai-sync status
 ```
 
-Check the process list:
+`status` reads the same config file and prints:
+
+- one `vault:` line per configured vault;
+- `last metrics push: <age> ago` from the supervisor's state file, or
+  `last metrics push: never` before the first push;
+- `agent: loaded` or `agent: not loaded`.
+
+It exits non-zero when the agent is not loaded, so it can gate a scripted check.
+A backwards clock clamps the reported age at zero instead of printing a negative
+duration.
+
+## Uninstall the agent
 
 ```bash
-ps -ef | grep git-ai-sync | grep -v grep
+git-ai-sync uninstall
 ```
 
-Check logs:
+`uninstall` boots the job out and removes the plist. On a machine with no plist
+it exits 0 without calling `launchctl`.
+
+## Logs
+
+The supervisor writes stdout and stderr to:
 
 ```bash
-tail -f /tmp/git-ai-sync-<label>.log
+tail -f ~/Library/Logs/git-ai-sync/git-ai-sync.log
 ```
 
-## 4. One-shot sync is different from the service
-
-This command runs a single sync and exits:
-
-```bash
-git-ai-sync sync /path/to/repo
-```
-
-That is useful for testing, but it does **not** replace the long-running watcher service.
+Logs live under `~/Library/Logs/git-ai-sync/`, never under a temporary directory
+that a reboot wipes.
 
 ## Troubleshooting
 
-### Service starts but nothing syncs
-
-- verify the watched directory is a git repository
-- verify the repository has a configured remote
-- run `git-ai-sync doctor`
-- run `git-ai-sync sync /path/to/repo` once to test basic sync behavior
-
 ### Setup fails in a sandboxed or SSH context
 
-In contexts where the launchd GUI domain cannot be managed (for example an SSH session or a sandbox without a GUI login), `setup-launchd` exits non-zero after writing the plist and prints the exact manual commands to run:
+When the launchd GUI domain cannot be managed (for example an SSH session or a
+sandbox without a GUI login), `install` exits non-zero after writing the plist
+and prints the exact manual command to run:
 
 ```bash
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.github.bborbe.git-ai-sync-<label>.plist
-launchctl kickstart -k gui/$(id -u)/com.github.bborbe.git-ai-sync-<label>
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.github.bborbe.git-ai-sync.plist
 ```
 
-A plist left on disk by a failed setup is inert; `git-ai-sync remove-launchd <vault-dir>` cleans it up.
+A plist left on disk by a failed install is inert; `git-ai-sync uninstall`
+cleans it up.
 
-### You upgraded git-ai-sync but the old watcher is still running
+### The agent is loaded but nothing syncs
 
-Regenerate the agent so the plist points at the current binary:
+- verify the config file names absolute vault paths that exist;
+- verify each vault is a git repository with a remote;
+- run `git-ai-sync sync /path/to/repo` once to test the sync path;
+- read `~/Library/Logs/git-ai-sync/git-ai-sync.log` for the per-vault failure
+  line, which is logged once per interval.
 
-```bash
-git-ai-sync remove-launchd <vault-dir>
-git-ai-sync setup-launchd <vault-dir>
-```
+### You upgraded the binary
 
-### Service keeps restarting (exit code 1 in `launchctl list`)
+Re-run `git-ai-sync install`. It resolves the current executable path, rewrites
+the plist, and reloads the job with a bootout followed by a bootstrap.
+
+### The service keeps restarting
 
 Check the log file for errors:
 
 ```bash
-cat /tmp/git-ai-sync-<label>.log
+tail -100 ~/Library/Logs/git-ai-sync/git-ai-sync.log
 ```
 
-Common causes:
-- wrong binary path in the plist — the binary was moved or renamed after `setup-launchd`, so the plist still points at the old path; regenerate the agent
-- repository path does not exist
-- no git remote configured
+Common causes are a moved binary, a missing vault path, or a repository with no
+remote. Re-run `git-ai-sync install` after fixing the binary path.
 
 ## Related
 
 - `README.md`
 - `docs/systemd-user-service.md`
-- `git-ai-sync doctor`
+- `docs/attention-store.md`

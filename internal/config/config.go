@@ -111,6 +111,10 @@ func resolveStrategy(ctx context.Context, flagValue *string) (string, error) {
 
 func resolveLogLevel(ctx context.Context, flagValue *string) (slog.Level, error) {
 	value := resolveString(flagValue, "LOG_LEVEL", defaultLogLevel)
+	return parseLogLevel(ctx, value)
+}
+
+func parseLogLevel(ctx context.Context, value string) (slog.Level, error) {
 	switch strings.ToUpper(value) {
 	case "DEBUG":
 		return slog.LevelDebug, nil

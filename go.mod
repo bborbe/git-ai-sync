@@ -6,6 +6,7 @@ require (
 	github.com/bborbe/errors v1.6.6
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/spf13/cobra v1.10.2
+	go.yaml.in/yaml/v3 v3.0.5
 )
 
 require (

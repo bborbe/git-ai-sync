@@ -186,6 +186,15 @@ func GenerateCommitMessage(prefix string, now time.Time) string {
 	return fmt.Sprintf("%s: %s", prefix, now.Format(time.RFC3339))
 }
 
+// RevParse resolves ref to its commit sha (git rev-parse <ref>).
+func RevParse(ctx context.Context, repo string, ref string) (string, error) {
+	out, err := runGit(ctx, repo, "rev-parse", ref)
+	if err != nil {
+		return "", errors.Wrapf(ctx, err, "rev-parse %s", ref)
+	}
+	return strings.TrimSpace(out), nil
+}
+
 func runGit(ctx context.Context, repo string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = repo
