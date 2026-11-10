@@ -8,7 +8,7 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 * MINOR version when you add functionality in a backwards-compatible manner, and
 * PATCH version when you make backwards-compatible bug fixes.
 
-## Unreleased
+## v0.18.2
 
 - fix: make `git-ai-sync install` wait for the booted-out launchd job to disappear and retry a raced bootstrap once, so reinstalling against a loaded agent converges instead of exiting 1 and leaving it stopped; `status` prints `never` when no metrics push is recorded
 
