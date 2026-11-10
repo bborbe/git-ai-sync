@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Automatic Git repository sync with AI-powered conflict resolution (Python/uv).
+Automatic Git repository sync with AI-powered conflict resolution (Go; the Python tree is retained only to build the Data Assistant image).
 
 ## Dark Factory Workflow
 
@@ -78,29 +78,22 @@ Automatic Git repository sync with AI-powered conflict resolution (Python/uv).
 
 ### Build and test
 
-- `make precommit` — format + lint + typecheck + test
-- `make test` — tests only
-- `make check` — lint + typecheck
-
-### Test conventions
-
-- pytest with pytest-asyncio
-- `tests/` directory
-- `asyncio_mode = "auto"`
+- `make precommit` — gofmt + go vet + go test
+- `make test` — Go tests only
+- `make check` — go vet
 
 ### Dependencies
+
+All Python dependencies below are for the Data Assistant image only:
 
 - `claude-code-sdk` — Claude Code CLI SDK for conflict resolution
 - `pydantic` / `pydantic-settings` — configuration
 - `watchdog` — filesystem watching
-- `ruff` — linting and formatting
-- `mypy` — type checking
 
 ### Toolchain
 
-- Python 3.14, uv package manager
-- `uv sync --all-extras` to install
-- `uv run` prefix for all commands
+- Go, version per go.mod
+- Python 3.14 / uv — Data Assistant image only
 
 ## Architecture
 

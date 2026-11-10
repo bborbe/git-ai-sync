@@ -38,7 +38,7 @@ type Options struct {
 	Logger          *slog.Logger
 	HomeDir         string        // defaults to os.UserHomeDir()
 	Launchctl       string        // defaults to "launchctl"
-	BinaryPath      string        // defaults to the symlink-resolved os.Executable()
+	BinaryPath      string        // defaults to the path os.Executable() was launched from
 	UID             int           // defaults to os.Getuid()
 	TeardownTimeout time.Duration // tests only; zero means defaultTeardownTimeout
 }
@@ -64,13 +64,17 @@ func ResolveOptions(ctx context.Context, opts Options) (Options, error) {
 		if err != nil {
 			return Options{}, errors.Wrapf(ctx, err, "resolve executable path")
 		}
-		resolved, err := filepath.EvalSymlinks(executable)
-		if err != nil {
-			return Options{}, errors.Wrapf(ctx, err, "resolve executable symlinks")
-		}
-		opts.BinaryPath = resolved
+		opts.BinaryPath = resolveBinaryPath(executable)
 	}
 	return opts, nil
+}
+
+// resolveBinaryPath returns the launch path: the path the process was
+// launched from. It does not resolve symlinks: a package-manager install
+// presents a stable link whose target a later upgrade replaces, so the
+// recorded path must stay the link.
+func resolveBinaryPath(executable string) string {
+	return executable
 }
 
 // PlistPath returns <home>/Library/LaunchAgents/<label>.plist.
