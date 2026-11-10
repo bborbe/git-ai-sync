@@ -1,0 +1,45 @@
+name: Release
+
+# Triggered when a GitHub Release is PUBLISHED — deliberately not on tag push.
+#
+# `autoRelease` in .maintainer.yaml rewrites `## Unreleased`, commits, tags and
+# pushes, but creates NO Release object. `release: [published]` needs one, so the
+# promotion step is `gh release create <tag> --verify-tag --generate-notes
+# --target master`. Deleting release-wheel.yml removes the repo's only other
+# `gh release create`, which is why that promotion is not optional.
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  goreleaser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # goreleaser needs full history + tags to resolve {{ .Tag }}.
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          # >= v2.19: .goreleaser.yaml uses homebrew_casks.hooks.post.install_steps,
+          # which replaced the deprecated Ruby install hook in v2.19.
+          version: 'v2.19.0'
+          args: release --clean
+        env:
+          # Attaches archives to the already-published Release.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Pushes the generated Homebrew cask to bborbe/homebrew-tap (cross-repo).
+          # SECURITY: fine-grained PAT scoped to ONLY the homebrew-tap repo with
+          # Contents: Read and write (nothing else).
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
