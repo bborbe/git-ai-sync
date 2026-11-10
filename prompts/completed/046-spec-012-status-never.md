@@ -1,8 +1,13 @@
 ---
-status: approved
+status: completed
 spec: [012-install-reload-race]
+summary: status now prints `never` for a zero recorded push time, with a new exact-line test and a strengthened positive-age assertion; the CHANGELOG bullet remains with its owning prompt per the prompt constraints.
+execution_id: 96a045ad-9b3b-5449-808f-6b11ba77d4fd-exec-046-spec-012-status-never
+dark-factory-version: dev
 created: "2026-11-10T14:30:00Z"
 queued: "2026-11-10T14:55:00Z"
+started: "2026-11-10T14:55:23Z"
+completed: "2026-11-10T14:57:14Z"
 branch: dark-factory/install-reload-race
 ---
 

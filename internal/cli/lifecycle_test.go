@@ -288,6 +288,8 @@ func TestStatusReportsVaultsAndFreshness(t *testing.T) {
 	requireContains(t, out, vaultB)
 	if age, ok := parseMetricsAge(t, out); !ok {
 		t.Fatalf("status has no last metrics push line: %q", out)
+	} else if age <= 0 {
+		t.Errorf("last metrics push age = %v, want a positive duration", age)
 	} else if age >= 60*time.Second {
 		t.Errorf("last metrics push age = %v, want under 60s", age)
 	}
@@ -320,6 +322,37 @@ func TestStatusReportsVaultsAndFreshness(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), launchd.Label) {
 		t.Errorf("status error does not name the label: %v", err)
+	}
+}
+
+func TestStatusReportsNeverForZeroPush(t *testing.T) {
+	home := t.TempDir()
+	stubLaunchctl(t)
+	vault := t.TempDir()
+	writeConfig(t, home, fmt.Sprintf("vaults:\n  - %s\n", vault))
+
+	statePath := filepath.Join(home, ".local", "state", "git-ai-sync", "status.json")
+	if err := os.MkdirAll(filepath.Dir(statePath), 0o755); err != nil {
+		t.Fatalf("create state directory: %v", err)
+	}
+	state := `{"last_metrics_push":"0001-01-01T00:00:00Z","vaults":{}}`
+	if err := os.WriteFile(statePath, []byte(state), 0o600); err != nil {
+		t.Fatalf("write state file: %v", err)
+	}
+
+	out, err := runStatus(t, home)
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	found := false
+	for _, line := range strings.Split(out, "\n") {
+		if line == "last metrics push: never" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("status has no exact %q line: %q", "last metrics push: never", out)
 	}
 }
 
