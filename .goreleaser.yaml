@@ -1,0 +1,65 @@
+version: 2
+
+project_name: git-ai-sync
+
+builds:
+  - id: git-ai-sync
+    binary: git-ai-sync
+    main: ./cmd/git-ai-sync
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/bborbe/git-ai-sync/internal/version.Version={{ .Tag }}
+
+archives:
+  - id: git-ai-sync
+    formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: "checksums.txt"
+
+release:
+  github:
+    owner: bborbe
+    name: git-ai-sync
+
+  # `mode` governs the release NOTES only — it has nothing to do with artifacts.
+  # `.github/workflows/release.yml` runs GoReleaser on `release: [published]`,
+  # i.e. once the Release object exists. `autoRelease` tags but creates no
+  # Release, so the promotion step (`gh release create <tag> --verify-tag
+  # --generate-notes --target master`) is what fires it; `keep-existing` then
+  # preserves whatever notes that step wrote instead of stacking GoReleaser's
+  # commit list underneath on every run.
+  mode: keep-existing
+
+  # Retry safety. Assets are uploaded before the cask step, so a run that fails
+  # at the cask leaves them behind and the next attempt dies with
+  # `422 Validation Failed [Code:already_exists]`. THIS is the artifact-level
+  # setting; `mode` is not.
+  replace_existing_artifacts: true
+
+homebrew_casks:
+  - name: git-ai-sync
+    description: "Automatic Git repository sync"
+    homepage: "https://github.com/bborbe/git-ai-sync"
+    repository:
+      owner: bborbe
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    commit_author:
+      name: goreleaser-bot
+      email: goreleaser@benjamin-borbe.de
+    # The binary is unsigned; strip the download quarantine so it runs without a
+    # Gatekeeper "unidentified developer" prompt on first use.
+    hooks:
+      post:
+        install_steps: |
+          /usr/bin/xattr -dr com.apple.quarantine "#{staged_path}/git-ai-sync"

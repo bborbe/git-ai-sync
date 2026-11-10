@@ -8,6 +8,10 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 * MINOR version when you add functionality in a backwards-compatible manner, and
 * PATCH version when you make backwards-compatible bug fixes.
 
+## v0.19.0
+
+- feat: publish darwin/linux Go binary archives via GoReleaser and retire the Python install/test/format/lint targets, so the CLI installs from a release asset instead of a local build
+
 ## v0.18.3
 
 - fix: record the launch path of the `git-ai-sync` binary in the launchd plist instead of the symlink target it resolves to, so a package-manager upgrade that replaces the link's target leaves the agent startable instead of naming a deleted directory
