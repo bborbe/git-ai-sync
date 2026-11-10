@@ -95,8 +95,8 @@ func TestInstallWritesPlistAndBootstraps(t *testing.T) {
 		"<key>RunAtLoad</key>",
 		"<integer>30</integer>",
 		"<string>Standard</string>",
-		"<integer>4096</integer>",
-		"<integer>8192</integer>",
+		"<integer>65536</integer>",
+		"<integer>245760</integer>",
 		"/usr/local/bin",
 		launchd.LogPath(home),
 	} {

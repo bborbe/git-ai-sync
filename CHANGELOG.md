@@ -8,6 +8,10 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 * MINOR version when you add functionality in a backwards-compatible manner, and
 * PATCH version when you make backwards-compatible bug fixes.
 
+## Unreleased
+
+- fix: Raise the rendered launchd `NumberOfFiles` limits from 4096 / 8192 to 65536 / 245760 so the supervisor's per-watched-path file descriptors fit the twelve-vault / 64,945-file workload instead of dying at startup with `too many open files`
+
 ## v0.18.0
 
 - feat: push per-vault metrics heartbeats with `POST`, serialise state-file updates through one collector, and post one attention card per stalled vault at the configured threshold, closing it on recovery with a 5 s bound on both calls

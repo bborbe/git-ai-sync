@@ -50,8 +50,14 @@ func TestRenderPlistShape(t *testing.T) {
 	assertContains(t, document, "<key>ProcessType</key>")
 	assertContains(t, document, "<string>Standard</string>")
 	assertContains(t, document, "<key>NumberOfFiles</key>")
-	assertContains(t, document, "<integer>4096</integer>")
-	assertContains(t, document, "<integer>8192</integer>")
+	assertContains(t, document, "<integer>65536</integer>")
+	assertContains(t, document, "<integer>245760</integer>")
+	assertInOrder(t, document,
+		"<key>SoftResourceLimits</key>",
+		"<integer>65536</integer>",
+		"<key>HardResourceLimits</key>",
+		"<integer>245760</integer>",
+	)
 	assertContains(t, document, "<key>PATH</key>")
 	assertContains(t, document, "/usr/local/bin")
 	assertContains(t, document, "<key>StandardOutPath</key>")
