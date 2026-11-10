@@ -51,6 +51,9 @@ type stateCollector struct {
 }
 
 func newStateCollector(ctx context.Context, path string, logger *slog.Logger) (*stateCollector, error) {
+	if path == "" {
+		return &stateCollector{logger: logger, state: State{Vaults: map[string]*VaultState{}}}, nil
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, errors.Wrapf(ctx, err, "create state directory %s", filepath.Dir(path))
 	}
@@ -100,6 +103,9 @@ func (c *stateCollector) vault(repo string) *VaultState {
 }
 
 func (c *stateCollector) write(ctx context.Context) {
+	if c.path == "" {
+		return
+	}
 	data, err := json.MarshalIndent(c.state, "", "  ")
 	if err != nil {
 		c.logger.Warn("write state file failed", "path", c.path, "error", err)

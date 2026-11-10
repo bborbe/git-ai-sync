@@ -1,7 +1,13 @@
 ---
-status: draft
+status: completed
 spec: [010-multi-vault-supervisor]
+summary: Added the multi-vault supervisor test suite, guarded unset state-file persistence, and documented the supervisor in the changelog; all Go and project validation gates pass.
+execution_id: 343bcb29-c431-540c-b449-0eef0950c240-exec-041-spec-010-supervise
+dark-factory-version: dev
 created: "2026-11-10T09:21:02Z"
+queued: "2026-11-10T09:58:03Z"
+started: "2026-11-10T09:58:04Z"
+completed: "2026-11-10T10:02:41Z"
 branch: dark-factory/multi-vault-supervisor
 ---
 
