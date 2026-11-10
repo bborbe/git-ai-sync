@@ -1,8 +1,13 @@
 ---
-status: approved
+status: completed
 spec: [010-multi-vault-supervisor]
+summary: Added internal/config YAML config-file loader coverage (file_test.go) and the CHANGELOG Unreleased bullet; the loader itself (flags > file > environment > defaults, $HOME default paths, unknown-key/malformed rejection, 0600 check) was already present and verified against all requirements.
+execution_id: 343bcb29-c431-540c-b449-0eef0950c240-exec-040-spec-010-config-file
+dark-factory-version: dev
 created: "2026-11-10T09:21:02Z"
 queued: "2026-11-10T09:50:17Z"
+started: "2026-11-10T09:54:12Z"
+completed: "2026-11-10T09:55:38Z"
 branch: dark-factory/multi-vault-supervisor
 ---
 
