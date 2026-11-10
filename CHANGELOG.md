@@ -8,6 +8,10 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 * MINOR version when you add functionality in a backwards-compatible manner, and
 * PATCH version when you make backwards-compatible bug fixes.
 
+## Unreleased
+
+- fix: Record the launch path (the path `os.Executable()` was launched from) in the launchd plist instead of the symlink-resolved target, so a package-manager install survives an upgrade that replaces the link's target
+
 ## v0.18.2
 
 - fix: make `git-ai-sync install` wait for the booted-out launchd job to disappear and retry a raced bootstrap once, so reinstalling against a loaded agent converges instead of exiting 1 and leaving it stopped; `status` prints `never` when no metrics push is recorded
