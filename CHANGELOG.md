@@ -8,6 +8,10 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 * MINOR version when you add functionality in a backwards-compatible manner, and
 * PATCH version when you make backwards-compatible bug fixes.
 
+## Unreleased
+
+- fix: raise the rendered launchd `NumberOfFiles` limits to 65536 soft / 245760 hard, so the twelve-vault supervisor can watch 64,945 files instead of failing every loop with `too many open files`
+
 ## v0.18.0
 
 - feat: push per-vault metrics heartbeats with `POST`, serialise state-file updates through one collector, and post one attention card per stalled vault at the configured threshold, closing it on recovery with a 5 s bound on both calls
