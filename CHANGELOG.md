@@ -10,7 +10,7 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- fix: Make `launchd.Install` converge against an already-loaded agent — poll `launchctl print` until the booted-out job disappears (bounded at 15 s, injectable for tests), retry a racing `bootstrap` exactly once, and fail loudly with the manual `launchctl bootstrap` command instead of leaving the agent stopped
+- fix: make `git-ai-sync install` wait for the booted-out launchd job to disappear and retry a raced bootstrap once, so reinstalling against a loaded agent converges instead of exiting 1 and leaving it stopped; `status` prints `never` when no metrics push is recorded
 
 ## v0.18.1
 

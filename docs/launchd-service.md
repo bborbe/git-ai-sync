@@ -66,10 +66,19 @@ git-ai-sync install
 1. checks the config file mode and refuses a group- or world-accessible file;
 2. creates `~/Library/Logs/git-ai-sync/`;
 3. writes `~/Library/LaunchAgents/com.github.bborbe.git-ai-sync.plist`;
-4. boots the job out, then bootstraps it into `gui/$(id -u)`.
+4. boots the job out with `launchctl bootout`, then polls
+   `launchctl print gui/$(id -u)/com.github.bborbe.git-ai-sync` every 100 ms
+   until launchd reports the job gone (bounded to 15 s), and then bootstraps it
+   into `gui/$(id -u)`.
 
 It is idempotent: a second `install` writes a byte-identical plist and exits 0,
 so it is also the way to reload after a config change or a binary upgrade.
+
+The reload converges even when the old job is still loaded. If the bootstrap
+still races the teardown, `install` polls once more and retries the bootstrap
+exactly once. If the job is still present after the bounded wait, or the
+bootstrap fails twice, `install` exits non-zero and prints the exact manual
+`launchctl bootstrap` command to run.
 
 ### The plist `install` produces
 
@@ -177,7 +186,10 @@ cleans it up.
 ### You upgraded the binary
 
 Re-run `git-ai-sync install`. It resolves the current executable path, rewrites
-the plist, and reloads the job with a bootout followed by a bootstrap.
+the plist, and reloads the job: it runs `launchctl bootout`, polls until the
+job is gone, and then runs `launchctl bootstrap`. A bootstrap that still races
+the teardown is retried once; if it still fails, the command prints the exact
+manual `launchctl bootstrap` line.
 
 ### The service keeps restarting
 

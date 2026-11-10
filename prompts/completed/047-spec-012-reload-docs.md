@@ -1,7 +1,13 @@
 ---
-status: draft
+status: completed
 spec: [012-install-reload-race]
+summary: 'Documented the converging launchd reload in docs/launchd-service.md and recorded it with a single fix bullet under a new ## Unreleased section above v0.18.1 in CHANGELOG.md'
+execution_id: 96a045ad-9b3b-5449-808f-6b11ba77d4fd-exec-047-spec-012-reload-docs
+dark-factory-version: dev
 created: "2026-11-10T14:30:00Z"
+queued: "2026-11-10T14:59:04Z"
+started: "2026-11-10T14:59:06Z"
+completed: "2026-11-10T15:00:24Z"
 branch: dark-factory/install-reload-race
 ---
 
