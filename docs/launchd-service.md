@@ -85,8 +85,9 @@ bootstrap fails twice, `install` exits non-zero and prints the exact manual
 The plist is a frozen contract with no tunable knobs:
 
 - **Label**: `com.github.bborbe.git-ai-sync`
-- **ProgramArguments**: the symlink-resolved `git-ai-sync` binary, then
-  `supervise --config <resolved config path>`
+- **ProgramArguments**: the launch path — the `git-ai-sync` binary path the
+  `install` process was launched from, recorded verbatim — then
+  `supervise --config <config path>`
 - **KeepAlive**: `true` — launchd restarts the supervisor if it exits
 - **RunAtLoad**: `true` — starts immediately after registration and at login
 - **ThrottleInterval**: `30` seconds, so a crash loop cannot relaunch every ten
@@ -101,6 +102,14 @@ The plist is a frozen contract with no tunable knobs:
   `~/Library/Logs/git-ai-sync/git-ai-sync.log`
 - **No credentials**: the plist carries no pushgateway URL, username or password.
   Everything secret stays in the `0600` config file.
+
+The first `ProgramArguments` entry is the **launch path**: the absolute path
+the `install` process was launched from, recorded verbatim, not the target a
+package-manager link points at. A Homebrew cask installs a stable link such
+as `/opt/homebrew/bin/git-ai-sync` and repoints it on every upgrade; recording
+the link means the plist survives the upgrade, while recording the link's
+versioned target would leave the agent naming a directory the upgrade
+deletes. A plain install that is not a link records its own path unchanged.
 
 `NumberOfFiles` is sized for the workload, not for the launchd baseline. The
 change tracker (`internal/changetracker`) is built on `fsnotify`, which on macOS
@@ -185,11 +194,15 @@ cleans it up.
 
 ### You upgraded the binary
 
-Re-run `git-ai-sync install`. It resolves the current executable path, rewrites
-the plist, and reloads the job: it runs `launchctl bootout`, polls until the
-job is gone, and then runs `launchctl bootstrap`. A bootstrap that still races
-the teardown is retried once; if it still fails, the command prints the exact
-manual `launchctl bootstrap` line.
+An install through a stable link needs nothing: the plist names the link, and
+the upgrade repoints the link at the new binary, so the agent starts the new
+target on its next restart. If you replaced the binary at a different path, or
+you want to reload the running job immediately, re-run `git-ai-sync install`.
+It records the launch path, rewrites the plist, and reloads the job: it runs
+`launchctl bootout`, polls until the job is gone, and then runs
+`launchctl bootstrap`. A bootstrap that still races the teardown is retried
+once; if it still fails, the command prints the exact manual
+`launchctl bootstrap` line.
 
 ### The service keeps restarting
 
