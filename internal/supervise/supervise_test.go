@@ -270,17 +270,12 @@ func TestFailingVaultDoesNotStopOthers(t *testing.T) {
 		}
 	}()
 
-	time.Sleep(3 * time.Second)
+	for _, f := range []superviseFixture{first, second} {
+		waitForOccurrences(t, buffer, "push path="+f.clone, 2, supervisePushTimeout)
+	}
+	waitForOccurrences(t, buffer, "path="+badPath, 3, supervisePushTimeout)
 	stopWriter()
 
-	if got := strings.Count(buffer.String(), "path="+badPath); got < 3 {
-		t.Errorf("the failing vault was logged %d times, want at least 3:\n%s", got, buffer.String())
-	}
-	for _, f := range []superviseFixture{first, second} {
-		if got := strings.Count(buffer.String(), "push path="+f.clone); got < 2 {
-			t.Errorf("vault %s pushed %d times, want at least 2:\n%s", f.clone, got, buffer.String())
-		}
-	}
 	if strings.Contains(buffer.String(), "vault panicked") {
 		t.Errorf("a vault goroutine panicked:\n%s", buffer.String())
 	}

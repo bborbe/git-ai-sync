@@ -1,7 +1,12 @@
 ---
-status: approved
+status: completed
+summary: Replaced the fixed 3s sleep in TestFailingVaultDoesNotStopOthers with bounded polling via the existing waitForOccurrences helper
+execution_id: git-ai-sync-flaky-test-exec-050-fix-supervise-flaky-test
+dark-factory-version: v0.198.17
 created: "2026-11-10T00:00:00Z"
 queued: "2026-11-10T22:41:55Z"
+started: "2026-11-10T22:57:44Z"
+completed: "2026-11-10T23:01:06Z"
 ---
 
 # Make the failing-vault test wait for pushes instead of sleeping
