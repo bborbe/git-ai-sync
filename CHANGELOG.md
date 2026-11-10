@@ -8,7 +8,7 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 * MINOR version when you add functionality in a backwards-compatible manner, and
 * PATCH version when you make backwards-compatible bug fixes.
 
-## Unreleased
+## v0.19.0
 
 - feat: publish darwin/linux Go binary archives via GoReleaser and retire the Python install/test/format/lint targets, so the CLI installs from a release asset instead of a local build
 
