@@ -1,4 +1,4 @@
-.PHONY: help install sync run test check precommit format lint typecheck clean build upload buca
+.PHONY: help install run test check precommit format lint clean build upload buca
 
 DOCKER_REGISTRY ?= docker.io
 IMAGE ?= bborbe/git-ai-sync
@@ -27,45 +27,36 @@ VERSION ?= $(shell git describe --tags --always --dirty)
 
 help:
 	@echo "Available targets:"
-	@echo "  install    - Install dependencies"
-	@echo "  sync       - Sync dependencies with uv"
-	@echo "  run        - Run git-ai-sync"
-	@echo "  test       - Run tests"
-	@echo "  check      - Run lint and typecheck"
+	@echo "  install    - Install the git-ai-sync binary into GOBIN"
+	@echo "  run        - Run git-ai-sync from source"
+	@echo "  test       - Run Go tests"
+	@echo "  check      - Run go vet"
 	@echo "  precommit  - Run all precommit checks"
 	@echo "  clean      - Clean build artifacts"
 
-install: sync
-
-sync:
-	@uv sync --all-extras
+install:
+	go install ./cmd/git-ai-sync
 
 run:
-	uv run git-ai-sync
+	go run ./cmd/git-ai-sync
 
-test: sync
-	uv run pytest
+test: test-go
 
-precommit: sync format test check
+precommit: precommit-go
 	@echo "✅ All precommit checks passed"
 
 format:
-	uv run ruff format .
-	uv run ruff check --fix . || true
+	gofmt -w cmd internal
 
 lint:
-	uv run ruff check .
+	go vet ./...
 
-typecheck:
-	uv run mypy src
-
-check: lint typecheck
+check: lint
 
 ifeq ($(BUILD_TARGET),local)
 clean:
 	docker rmi $(DOCKER_REGISTRY)/$(IMAGE):$(VERSION) || true
-	rm -rf .venv dist *.egg-info .pytest_cache .mypy_cache .ruff_cache
-	find . -type d -name __pycache__ -exec rm -rf {} +
+	rm -rf dist
 else
 clean:
 	@echo "clean: skipped — BUILD_TARGET=$(BUILD_TARGET); no local image to remove"
