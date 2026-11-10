@@ -32,11 +32,12 @@ release:
     name: git-ai-sync
 
   # `mode` governs the release NOTES only — it has nothing to do with artifacts.
-  # This config is inert until a GoReleaser workflow lands (`.github/` is out of
-  # scope here). That workflow must run after the Release is created, because
-  # `release-wheel.yml` creates it on tag push; `keep-existing` then preserves
-  # whatever notes that step wrote instead of stacking GoReleaser's commit list
-  # underneath on every run.
+  # `.github/workflows/release.yml` runs GoReleaser on `release: [published]`,
+  # i.e. once the Release object exists. `autoRelease` tags but creates no
+  # Release, so the promotion step (`gh release create <tag> --verify-tag
+  # --generate-notes --target master`) is what fires it; `keep-existing` then
+  # preserves whatever notes that step wrote instead of stacking GoReleaser's
+  # commit list underneath on every run.
   mode: keep-existing
 
   # Retry safety. Assets are uploaded before the cask step, so a run that fails
