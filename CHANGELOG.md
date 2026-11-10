@@ -8,6 +8,10 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 * MINOR version when you add functionality in a backwards-compatible manner, and
 * PATCH version when you make backwards-compatible bug fixes.
 
+## Unreleased
+
+- feat: add `internal/launchd` plus `git-ai-sync install`, `uninstall` and `status`, a baseline-compliant single launchd agent for the supervisor, bootout-then-bootstrap loading, an idempotent plist, and a `docs/launchd-service.md` rewrite for the Go path
+
 ## v0.17.0
 
 - feat: add `internal/conflict`, a fail-closed Claude CLI conflict resolver (JSON envelope with `is_error` / empty / authentication checks, markdown frontmatter guard, code-fence stripping, atomic single-file write and staging) plus the exported `internal/git` conflict helpers it needs

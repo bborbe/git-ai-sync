@@ -5,11 +5,13 @@ import (
 	"context"
 	stderrors "errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/bborbe/errors"
 	"github.com/spf13/cobra"
@@ -18,8 +20,10 @@ import (
 	"github.com/bborbe/git-ai-sync/internal/config"
 	"github.com/bborbe/git-ai-sync/internal/conflict"
 	"github.com/bborbe/git-ai-sync/internal/git"
+	"github.com/bborbe/git-ai-sync/internal/launchd"
 	"github.com/bborbe/git-ai-sync/internal/lock"
 	"github.com/bborbe/git-ai-sync/internal/logging"
+	"github.com/bborbe/git-ai-sync/internal/supervise"
 	"github.com/bborbe/git-ai-sync/internal/sync"
 	"github.com/bborbe/git-ai-sync/internal/version"
 	"github.com/bborbe/git-ai-sync/internal/watch"
@@ -59,7 +63,173 @@ func newRootCommand(ctx context.Context) *cobra.Command {
 	rootCmd.AddCommand(newWatchCommand(ctx))
 	rootCmd.AddCommand(newSyncCommand(ctx))
 	rootCmd.AddCommand(newResolveCommand(ctx))
+	rootCmd.AddCommand(newSuperviseCommand(ctx))
+	rootCmd.AddCommand(newInstallCommand(ctx))
+	rootCmd.AddCommand(newUninstallCommand(ctx))
+	rootCmd.AddCommand(newStatusCommand(ctx))
 	return rootCmd
+}
+
+func addConfigFlag(cmd *cobra.Command) {
+	cmd.Flags().String("config", "", "Path to the config file")
+}
+
+func fileOptions(ctx context.Context, cmd *cobra.Command) (config.FileOptions, error) {
+	var opts config.FileOptions
+	if cmd.Flags().Changed("config") {
+		value, err := cmd.Flags().GetString("config")
+		if err != nil {
+			return opts, errors.Wrapf(ctx, err, "read --config")
+		}
+		opts.ConfigPath = &value
+	}
+	if cmd.Flags().Changed("interval") {
+		value, err := cmd.Flags().GetInt("interval")
+		if err != nil {
+			return opts, errors.Wrapf(ctx, err, "read --interval")
+		}
+		opts.Interval = &value
+	}
+	if cmd.Flags().Changed("strategy") {
+		value, err := cmd.Flags().GetString("strategy")
+		if err != nil {
+			return opts, errors.Wrapf(ctx, err, "read --strategy")
+		}
+		opts.Strategy = &value
+	}
+	if cmd.Flags().Changed("log-level") {
+		value, err := cmd.Flags().GetString("log-level")
+		if err != nil {
+			return opts, errors.Wrapf(ctx, err, "read --log-level")
+		}
+		opts.LogLevel = &value
+	}
+	return opts, nil
+}
+
+func newSuperviseCommand(ctx context.Context) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "supervise",
+		Short: "Run one sync loop per configured vault",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			runCtx := commandContext(ctx, cmd)
+			opts, err := fileOptions(runCtx, cmd)
+			if err != nil {
+				return errors.Wrapf(runCtx, err, "read config options")
+			}
+			cfg, err := config.LoadFile(runCtx, opts)
+			if err != nil {
+				return errors.Wrapf(runCtx, err, "load config file")
+			}
+			logger := logging.New(cmd.ErrOrStderr(), cfg.LogLevel)
+			return supervise.Run(runCtx, supervise.Options{Config: cfg, Logger: logger, Clock: clock.New()})
+		},
+	}
+	addConfigFlag(cmd)
+	cmd.Flags().Int("interval", -1, "Sync interval in seconds")
+	cmd.Flags().String("strategy", "", "Pull strategy: merge or rebase")
+	cmd.Flags().String("log-level", "", "Logging level")
+	return cmd
+}
+
+func newInstallCommand(ctx context.Context) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "install",
+		Short: "Install and load the supervisor launchd agent",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			runCtx := commandContext(ctx, cmd)
+			opts, err := fileOptions(runCtx, cmd)
+			if err != nil {
+				return errors.Wrapf(runCtx, err, "read config options")
+			}
+			cfg, err := config.LoadFile(runCtx, opts)
+			if err != nil {
+				return errors.Wrapf(runCtx, err, "load config file")
+			}
+			logger := logging.New(cmd.ErrOrStderr(), cfg.LogLevel)
+			return launchd.Install(runCtx, launchd.Options{Config: cfg, Logger: logger})
+		},
+	}
+	addConfigFlag(cmd)
+	return cmd
+}
+
+func newUninstallCommand(ctx context.Context) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "uninstall",
+		Short: "Boot out and remove the supervisor launchd agent",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			runCtx := commandContext(ctx, cmd)
+			opts, err := fileOptions(runCtx, cmd)
+			if err != nil {
+				return errors.Wrapf(runCtx, err, "read config options")
+			}
+			cfg, err := config.LoadFile(runCtx, opts)
+			if err != nil {
+				return errors.Wrapf(runCtx, err, "load config file")
+			}
+			logger := logging.New(cmd.ErrOrStderr(), cfg.LogLevel)
+			return launchd.Uninstall(runCtx, launchd.Options{Config: cfg, Logger: logger})
+		},
+	}
+	addConfigFlag(cmd)
+	return cmd
+}
+
+func newStatusCommand(ctx context.Context) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "status",
+		Short: "Report the configured vaults, metrics freshness and agent state",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			runCtx := commandContext(ctx, cmd)
+			opts, err := fileOptions(runCtx, cmd)
+			if err != nil {
+				return errors.Wrapf(runCtx, err, "read config options")
+			}
+			cfg, err := config.LoadFile(runCtx, opts)
+			if err != nil {
+				return errors.Wrapf(runCtx, err, "load config file")
+			}
+			logger := logging.New(cmd.ErrOrStderr(), cfg.LogLevel)
+			out := cmd.OutOrStdout()
+
+			for _, vault := range cfg.Vaults {
+				fmt.Fprintf(out, "vault: %s\n", vault)
+			}
+
+			state, err := supervise.ReadState(runCtx, cfg.StateFile)
+			if err != nil {
+				if stderrors.Is(err, fs.ErrNotExist) {
+					fmt.Fprintln(out, "last metrics push: never")
+				} else {
+					return errors.Wrapf(runCtx, err, "read state file")
+				}
+			} else {
+				age := time.Since(state.LastMetricsPush)
+				if age < 0 {
+					age = 0
+				}
+				fmt.Fprintf(out, "last metrics push: %s ago\n", age.Round(time.Second))
+			}
+
+			loaded, err := launchd.IsLoaded(runCtx, launchd.Options{Config: cfg, Logger: logger})
+			if err != nil {
+				return errors.Wrapf(runCtx, err, "check launchd agent")
+			}
+			if !loaded {
+				fmt.Fprintln(out, "agent: not loaded")
+				return errors.Errorf(runCtx, "launchd agent %s is not loaded", launchd.Label)
+			}
+			fmt.Fprintln(out, "agent: loaded")
+			return nil
+		},
+	}
+	addConfigFlag(cmd)
+	return cmd
 }
 
 func newWatchCommand(ctx context.Context) *cobra.Command {
