@@ -1,8 +1,9 @@
 ---
-status: prompted
+status: verifying
 approved: "2026-11-10T21:01:06Z"
 generating: "2026-11-10T21:08:36Z"
 prompted: "2026-11-10T21:18:50Z"
+verifying: "2026-11-10T21:29:39Z"
 branch: dark-factory/pin-launchd-plist-to-launch-path
 ---
 

@@ -1,7 +1,13 @@
 ---
-status: draft
+status: completed
 spec: [013-pin-launchd-plist-to-launch-path]
+summary: Updated docs/launchd-service.md to describe the launch path recorded verbatim in the plist (and how a stable package-manager link survives an upgrade), and aligned the single `## Unreleased` CHANGELOG fix bullet; `make precommit` passed.
+execution_id: 5f16a005-33ee-5c79-be8c-829b3e4dc84e-exec-049-spec-013-launch-path-docs
+dark-factory-version: dev
 created: "2026-11-10T21:22:00Z"
+queued: "2026-11-10T21:33:55Z"
+started: "2026-11-10T21:33:56Z"
+completed: "2026-11-10T21:34:55Z"
 branch: dark-factory/pin-launchd-plist-to-launch-path
 ---
 

@@ -10,7 +10,7 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
-- fix: Record the launch path (the path `os.Executable()` was launched from) in the launchd plist instead of the symlink-resolved target, so a package-manager install survives an upgrade that replaces the link's target
+- fix: record the launch path of the `git-ai-sync` binary in the launchd plist instead of the symlink target it resolves to, so a package-manager upgrade that replaces the link's target leaves the agent startable instead of naming a deleted directory
 
 ## v0.18.2
 
