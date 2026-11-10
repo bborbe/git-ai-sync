@@ -8,7 +8,7 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 * MINOR version when you add functionality in a backwards-compatible manner, and
 * PATCH version when you make backwards-compatible bug fixes.
 
-## Unreleased
+## v0.18.0
 
 - feat: push per-vault metrics heartbeats with `POST`, serialise state-file updates through one collector, and post one attention card per stalled vault at the configured threshold, closing it on recovery with a 5 s bound on both calls
 - feat: add `internal/launchd` plus `git-ai-sync install`, `uninstall` and `status`, a baseline-compliant single launchd agent for the supervisor, bootout-then-bootstrap loading, an idempotent plist, and a `docs/launchd-service.md` rewrite for the Go path
