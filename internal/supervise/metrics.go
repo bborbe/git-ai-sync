@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
 	"time"
 
@@ -20,22 +19,7 @@ const (
 	heartbeatMetric   = "git_ai_sync_heartbeat_timestamp"
 	lastSuccessMetric = "git_ai_sync_last_success_timestamp"
 	metricsTimeout    = 5 * time.Second
-
-	redactedErrorMaxChars = 200
 )
-
-var urlPattern = regexp.MustCompile(`[A-Za-z][A-Za-z0-9+.-]*://\S+`)
-
-// redactURLs replaces URL-shaped runs with <url> and truncates the result. The
-// redaction happens before truncation so a URL cannot survive as a fragment.
-func redactURLs(value string) string {
-	redacted := urlPattern.ReplaceAllString(value, "<url>")
-	runes := []rune(redacted)
-	if len(runes) > redactedErrorMaxChars {
-		return string(runes[:redactedErrorMaxChars])
-	}
-	return redacted
-}
 
 type metricsClient struct {
 	pushgateway config.Pushgateway

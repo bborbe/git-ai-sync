@@ -10,6 +10,7 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 
 ## Unreleased
 
+- feat: push per-vault metrics heartbeats with `POST`, serialise state-file updates through one collector, and post one attention card per stalled vault at the configured threshold, closing it on recovery with a 5 s bound on both calls
 - feat: add `internal/launchd` plus `git-ai-sync install`, `uninstall` and `status`, a baseline-compliant single launchd agent for the supervisor, bootout-then-bootstrap loading, an idempotent plist, and a `docs/launchd-service.md` rewrite for the Go path
 - test: prove an install plus two supervisor cycles leave the pushgateway password only in the `0600` config file, absent from the plist, the state file, the captured log, and every file under `$HOME/Library` and `$HOME/.local/state`, while the pushgateway still receives the Basic credential
 - feat: add `internal/config`'s YAML config-file loader with `flags > file > environment > defaults` precedence, `$HOME`-derived default config and state paths, unknown-key and malformed-value rejection, and a `0600` permission check

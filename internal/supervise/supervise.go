@@ -54,7 +54,8 @@ func Run(ctx context.Context, opts Options) error {
 	deps := runnerDeps{
 		metrics:   newMetrics(opts.Config.Pushgateway, opts.Logger),
 		collector: collector,
-		failures:  &failureCounter{},
+		notifier:  newNotifier(ctx, opts.Config.AttentionScript, opts.Config.AttentionStoreURL, opts.Logger),
+		tracker:   newStallTracker(),
 	}
 
 	opts.Logger.Info("supervise started", "vaults", len(opts.Config.Vaults))
@@ -105,30 +106,8 @@ func runVault(ctx context.Context, opts Options, vault string, deps runnerDeps) 
 type runnerDeps struct {
 	metrics   *metricsClient
 	collector *stateCollector
-	failures  *failureCounter
-}
-
-// failureCounter tracks each vault's consecutive failed cycles for the state
-// file. The vault goroutines share it.
-type failureCounter struct {
-	mutex  stdsync.Mutex
-	counts map[string]int
-}
-
-// record increments the vault's failure count on failure, resets it on success,
-// and returns the current count.
-func (c *failureCounter) record(repo string, success bool) int {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-	if c.counts == nil {
-		c.counts = map[string]int{}
-	}
-	if success {
-		c.counts[repo] = 0
-		return 0
-	}
-	c.counts[repo]++
-	return c.counts[repo]
+	notifier  *notifier
+	tracker   *stallTracker
 }
 
 func (o Options) runnerFor(logger *slog.Logger, deps runnerDeps) watch.Runner {
@@ -137,6 +116,12 @@ func (o Options) runnerFor(logger *slog.Logger, deps runnerDeps) watch.Runner {
 		res, err := base(ctx, repo, sopts)
 		now := o.Clock.Now()
 		success := err == nil && res.CommitErr == nil
+		lastError := ""
+		if err != nil {
+			lastError = err.Error()
+		} else if res.CommitErr != nil {
+			lastError = res.CommitErr.Error()
+		}
 
 		if err == nil && res.Pushed {
 			sha, shaErr := git.RevParse(ctx, repo, "HEAD")
@@ -148,21 +133,22 @@ func (o Options) runnerFor(logger *slog.Logger, deps runnerDeps) watch.Runner {
 		}
 
 		if deps.metrics.enabled() && deps.metrics.push(ctx, Label(repo), now, success) {
-			deps.collector.RecordMetricsPush(ctx, now)
+			deps.collector.RecordMetricsPush(now)
 		}
 
 		if success {
-			deps.failures.record(repo, true)
-			deps.collector.RecordSuccess(ctx, repo, now)
-		} else {
-			lastError := ""
-			if err != nil {
-				lastError = err.Error()
-			} else if res.CommitErr != nil {
-				lastError = res.CommitErr.Error()
+			if itemID := deps.tracker.recordSuccess(repo); itemID != "" {
+				deps.notifier.close(ctx, itemID)
 			}
-			count := deps.failures.record(repo, false)
-			deps.collector.RecordFailure(ctx, repo, now, count, lastError)
+			deps.collector.RecordSuccess(repo, now)
+		} else {
+			count, firstFailureAt := deps.tracker.recordFailure(repo, now)
+			deps.collector.RecordFailure(repo, now, count, lastError)
+			if deps.notifier.enabled() && count >= o.Config.StallThreshold && deps.tracker.outstanding(repo) == "" {
+				if itemID, ok := deps.notifier.post(ctx, Label(repo), repo, count, firstFailureAt, lastError); ok {
+					deps.tracker.setOutstanding(repo, itemID)
+				}
+			}
 		}
 		return res, err
 	}

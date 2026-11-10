@@ -1,7 +1,13 @@
 ---
-status: draft
+status: completed
 spec: [010-multi-vault-supervisor]
+summary: Added per-vault POST metrics heartbeats with last-success, a single mutex-serialised atomic state-file collector, and a bounded best-effort stall notifier that posts one card at the threshold and closes it on recovery, all wired into the supervisor with four passing tests.
+execution_id: 343bcb29-c431-540c-b449-0eef0950c240-exec-042-spec-010-metrics-notifier
+dark-factory-version: dev
 created: "2026-11-10T09:21:02Z"
+queued: "2026-11-10T10:06:32Z"
+started: "2026-11-10T10:06:34Z"
+completed: "2026-11-10T10:16:09Z"
 branch: dark-factory/multi-vault-supervisor
 ---
 

@@ -44,6 +44,7 @@ func ReadState(ctx context.Context, path string) (State, error) {
 
 // stateCollector serialises every vault's state-file update through one writer.
 type stateCollector struct {
+	ctx    context.Context
 	path   string
 	logger *slog.Logger
 	mutex  stdsync.Mutex
@@ -51,43 +52,45 @@ type stateCollector struct {
 }
 
 func newStateCollector(ctx context.Context, path string, logger *slog.Logger) (*stateCollector, error) {
-	if path == "" {
-		return &stateCollector{logger: logger, state: State{Vaults: map[string]*VaultState{}}}, nil
+	if logger == nil {
+		logger = slog.Default()
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return nil, errors.Wrapf(ctx, err, "create state directory %s", filepath.Dir(path))
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, errors.Wrapf(ctx, err, "create state directory %s", dir)
 	}
 	return &stateCollector{
+		ctx:    ctx,
 		path:   path,
 		logger: logger,
 		state:  State{Vaults: map[string]*VaultState{}},
 	}, nil
 }
 
-func (c *stateCollector) RecordSuccess(ctx context.Context, repo string, now time.Time) {
+func (c *stateCollector) RecordSuccess(repo string, now time.Time) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 	vault := c.vault(repo)
 	vault.ConsecutiveFailures = 0
 	vault.LastSuccess = now
 	vault.LastError = ""
-	c.write(ctx)
+	c.write(c.ctx)
 }
 
-func (c *stateCollector) RecordFailure(ctx context.Context, repo string, _ time.Time, consecutiveFailures int, lastError string) {
+func (c *stateCollector) RecordFailure(repo string, now time.Time, consecutiveFailures int, lastError string) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 	vault := c.vault(repo)
 	vault.ConsecutiveFailures = consecutiveFailures
 	vault.LastError = redactURLs(lastError)
-	c.write(ctx)
+	c.write(c.ctx)
 }
 
-func (c *stateCollector) RecordMetricsPush(ctx context.Context, now time.Time) {
+func (c *stateCollector) RecordMetricsPush(now time.Time) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 	c.state.LastMetricsPush = now
-	c.write(ctx)
+	c.write(c.ctx)
 }
 
 func (c *stateCollector) vault(repo string) *VaultState {
@@ -102,42 +105,44 @@ func (c *stateCollector) vault(repo string) *VaultState {
 	return vault
 }
 
+// write replaces the state file atomically: marshal, write a temp file in the
+// same directory, fsync, then rename. A failure is logged and never returned.
 func (c *stateCollector) write(ctx context.Context) {
 	if c.path == "" {
 		return
 	}
 	data, err := json.MarshalIndent(c.state, "", "  ")
 	if err != nil {
-		c.logger.Warn("write state file failed", "path", c.path, "error", err)
+		c.logger.Warn("write state file failed", "path", c.path, "error", errors.Wrapf(ctx, err, "marshal state").Error())
 		return
 	}
 	tmp, err := os.CreateTemp(filepath.Dir(c.path), ".status-*")
 	if err != nil {
-		c.logger.Warn("write state file failed", "path", c.path, "error", err)
+		c.logger.Warn("write state file failed", "path", c.path, "error", errors.Wrapf(ctx, err, "create temp file").Error())
 		return
 	}
 	tmpName := tmp.Name()
 	defer func() { _ = os.Remove(tmpName) }()
 	if _, err := tmp.Write(data); err != nil {
 		_ = tmp.Close()
-		c.logger.Warn("write state file failed", "path", c.path, "error", err)
+		c.logger.Warn("write state file failed", "path", c.path, "error", errors.Wrapf(ctx, err, "write temp file").Error())
 		return
 	}
 	if err := tmp.Chmod(0o600); err != nil {
 		_ = tmp.Close()
-		c.logger.Warn("write state file failed", "path", c.path, "error", err)
+		c.logger.Warn("write state file failed", "path", c.path, "error", errors.Wrapf(ctx, err, "chmod temp file").Error())
 		return
 	}
 	if err := tmp.Sync(); err != nil {
 		_ = tmp.Close()
-		c.logger.Warn("write state file failed", "path", c.path, "error", err)
+		c.logger.Warn("write state file failed", "path", c.path, "error", errors.Wrapf(ctx, err, "sync temp file").Error())
 		return
 	}
 	if err := tmp.Close(); err != nil {
-		c.logger.Warn("write state file failed", "path", c.path, "error", err)
+		c.logger.Warn("write state file failed", "path", c.path, "error", errors.Wrapf(ctx, err, "close temp file").Error())
 		return
 	}
 	if err := os.Rename(tmpName, c.path); err != nil {
-		c.logger.Warn("write state file failed", "path", c.path, "error", err)
+		c.logger.Warn("write state file failed", "path", c.path, "error", errors.Wrapf(ctx, err, "rename temp file").Error())
 	}
 }
