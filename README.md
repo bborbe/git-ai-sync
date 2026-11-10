@@ -5,19 +5,30 @@ Automatic Git repository sync with AI-powered conflict resolution.
 ## Install
 
 ```bash
-uv tool install git+https://github.com/bborbe/git-ai-sync
+brew install --cask bborbe/tap/git-ai-sync
+```
+
+Or install the binary straight from a release archive:
+
+```bash
+os=$(uname -s | tr '[:upper:]' '[:lower:]')
+arch=$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')
+curl -fL -o git-ai-sync.tar.gz \
+  "https://github.com/bborbe/git-ai-sync/releases/latest/download/git-ai-sync_${os}_${arch}.tar.gz"
+tar -xzf git-ai-sync.tar.gz
+sudo install -m 0755 git-ai-sync /usr/local/bin/git-ai-sync
 ```
 
 ## Upgrade
 
 ```bash
-uv tool upgrade git-ai-sync
+brew upgrade --cask git-ai-sync
 ```
 
 ## Install from local checkout
 
 ```bash
-uv tool install --force --reinstall .
+go install ./cmd/git-ai-sync
 ```
 
 ## Quick Start
