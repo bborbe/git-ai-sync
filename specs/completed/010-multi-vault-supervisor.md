@@ -1,9 +1,10 @@
 ---
-status: verifying
+status: completed
 approved: "2026-11-10T08:43:44Z"
 generating: "2026-11-10T09:16:31Z"
 prompted: "2026-11-10T09:34:07Z"
 verifying: "2026-11-10T09:55:38Z"
+completed: "2026-11-10T10:16:15Z"
 branch: dark-factory/multi-vault-supervisor
 ---
 
