@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/bborbe/errors"
 
@@ -26,14 +27,20 @@ const plistFileName = Label + ".plist"
 
 const plistPathValue = "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
+const (
+	defaultTeardownTimeout = 15 * time.Second
+	teardownPollInterval   = 100 * time.Millisecond
+)
+
 // Options configures install, uninstall and status.
 type Options struct {
-	Config     config.FileConfig
-	Logger     *slog.Logger
-	HomeDir    string // defaults to os.UserHomeDir()
-	Launchctl  string // defaults to "launchctl"
-	BinaryPath string // defaults to the symlink-resolved os.Executable()
-	UID        int    // defaults to os.Getuid()
+	Config          config.FileConfig
+	Logger          *slog.Logger
+	HomeDir         string        // defaults to os.UserHomeDir()
+	Launchctl       string        // defaults to "launchctl"
+	BinaryPath      string        // defaults to the symlink-resolved os.Executable()
+	UID             int           // defaults to os.Getuid()
+	TeardownTimeout time.Duration // tests only; zero means defaultTeardownTimeout
 }
 
 // ResolveOptions fills the defaults for the options install, uninstall and
@@ -130,8 +137,9 @@ func RenderPlist(opts Options) ([]byte, error) {
 }
 
 // Install creates the log directory, writes the plist atomically, boots the
-// job out, and bootstraps it. A failed bootstrap returns an error naming the
-// manual bootstrap command.
+// job out, waits for launchd to finish tearing it down, and bootstraps it. A
+// bootstrap that still races the teardown is retried once. A bootstrap that
+// fails on both attempts returns an error naming the manual bootstrap command.
 func Install(ctx context.Context, opts Options) error {
 	resolved, err := ResolveOptions(ctx, opts)
 	if err != nil {
@@ -164,10 +172,76 @@ func Install(ctx context.Context, opts Options) error {
 		logger.Warn("launchctl bootout failed", "target", target, "output", strings.TrimSpace(out), "error", err)
 	}
 
-	if out, err := runLaunchctl(ctx, resolved, "bootstrap", fmt.Sprintf("gui/%d", resolved.UID), plistPath); err != nil {
-		return errors.Errorf(ctx, "launchctl bootstrap failed: %v\nRun manually:\n  launchctl bootstrap gui/%d %s\n%s", err, resolved.UID, plistPath, strings.TrimSpace(out))
+	timeout := resolved.TeardownTimeout
+	if timeout <= 0 {
+		timeout = defaultTeardownTimeout
+	}
+	deadline := time.Now().Add(timeout)
+
+	if err := waitForUnload(ctx, resolved, deadline); err != nil {
+		if stderrors.Is(err, context.Canceled) || stderrors.Is(err, context.DeadlineExceeded) {
+			return err
+		}
+		return errors.Wrapf(ctx, err, "wait for launchd job %s to unload; run manually:\n  launchctl bootstrap gui/%d %s", target, resolved.UID, plistPath)
+	}
+
+	out, err := runLaunchctl(ctx, resolved, "bootstrap", fmt.Sprintf("gui/%d", resolved.UID), plistPath)
+	if err == nil {
+		return nil
+	}
+
+	logger.Warn("launchctl bootstrap failed, retrying once", "target", target, "output", strings.TrimSpace(out), "error", err)
+
+	// The failed bootstrap may itself have registered nothing; poll for absence
+	// once more before the single retry, sharing the same overall deadline.
+	if waitErr := waitForUnload(ctx, resolved, deadline); waitErr != nil {
+		if stderrors.Is(waitErr, context.Canceled) || stderrors.Is(waitErr, context.DeadlineExceeded) {
+			return waitErr
+		}
+		return bootstrapError(ctx, resolved, plistPath, err, out)
+	}
+
+	if out2, err2 := runLaunchctl(ctx, resolved, "bootstrap", fmt.Sprintf("gui/%d", resolved.UID), plistPath); err2 != nil {
+		return bootstrapError(ctx, resolved, plistPath, err2, out2)
 	}
 	return nil
+}
+
+// waitForUnload polls `launchctl print gui/<uid>/<label>` every
+// teardownPollInterval until the job is absent or the deadline passes. It
+// uses the caller's context, so cancellation returns promptly.
+func waitForUnload(ctx context.Context, opts Options, deadline time.Time) error {
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		loaded, err := IsLoaded(ctx, opts)
+		if err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return ctxErr
+			}
+			return errors.Wrapf(ctx, err, "check launchd job %s", Label)
+		}
+		if !loaded {
+			return nil
+		}
+		if !time.Now().Before(deadline) {
+			return errors.Errorf(ctx, "launchd job %s did not unload before the teardown deadline", Label)
+		}
+		timer := time.NewTimer(teardownPollInterval)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+// bootstrapError is the unchanged manual-recovery error Install returns when
+// the bootstrap fails on both attempts.
+func bootstrapError(ctx context.Context, opts Options, plistPath string, cause error, out string) error {
+	return errors.Errorf(ctx, "launchctl bootstrap failed: %v\nRun manually:\n  launchctl bootstrap gui/%d %s\n%s", cause, opts.UID, plistPath, strings.TrimSpace(out))
 }
 
 // Uninstall boots the job out (only when a plist exists) and removes the plist.

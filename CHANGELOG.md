@@ -8,6 +8,10 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 * MINOR version when you add functionality in a backwards-compatible manner, and
 * PATCH version when you make backwards-compatible bug fixes.
 
+## Unreleased
+
+- fix: Make `launchd.Install` converge against an already-loaded agent — poll `launchctl print` until the booted-out job disappears (bounded at 15 s, injectable for tests), retry a racing `bootstrap` exactly once, and fail loudly with the manual `launchctl bootstrap` command instead of leaving the agent stopped
+
 ## v0.18.1
 
 - fix: raise the rendered launchd `NumberOfFiles` limits to 65536 soft / 245760 hard, so the twelve-vault supervisor can watch 64,945 files instead of failing every loop with `too many open files`

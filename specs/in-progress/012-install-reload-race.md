@@ -1,6 +1,8 @@
 ---
-status: approved
+status: prompted
 approved: "2026-11-10T13:41:01Z"
+generating: "2026-11-10T14:23:51Z"
+prompted: "2026-11-10T14:38:37Z"
 branch: dark-factory/install-reload-race
 ---
 

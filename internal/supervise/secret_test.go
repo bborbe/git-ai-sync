@@ -173,7 +173,7 @@ func installLaunchctlStub(t *testing.T) {
 	t.Helper()
 	stubDir := t.TempDir()
 	logPath := filepath.Join(t.TempDir(), "launchctl.log")
-	stub := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$LAUNCHCTL_LOG\"\nexit 0\n"
+	stub := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$LAUNCHCTL_LOG\"\nif [ \"$1\" = \"print\" ]; then\n  exit 1\nfi\nexit 0\n"
 	if err := os.WriteFile(filepath.Join(stubDir, "launchctl"), []byte(stub), 0o755); err != nil {
 		t.Fatalf("write launchctl stub: %v", err)
 	}

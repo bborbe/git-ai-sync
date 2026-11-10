@@ -37,10 +37,25 @@ func stubLaunchctl(t *testing.T) string {
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		t.Fatalf("create launchctl bin directory: %v", err)
 	}
+	stateDir := filepath.Join(dir, "state")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		t.Fatalf("create launchctl state directory: %v", err)
+	}
 	script := "#!/bin/sh\n" +
 		"echo \"$@\" >> \"$LAUNCHCTL_LOG\"\n" +
-		"if [ \"$1\" = \"print\" ] && [ -n \"$LAUNCHCTL_PRINT_FAIL\" ]; then\n" +
-		"  exit 1\n" +
+		"if [ \"$1\" = \"bootout\" ]; then\n" +
+		"  : > \"$LAUNCHCTL_STATE/unloaded\"\n" +
+		"fi\n" +
+		"if [ \"$1\" = \"bootstrap\" ]; then\n" +
+		"  rm -f \"$LAUNCHCTL_STATE/unloaded\"\n" +
+		"fi\n" +
+		"if [ \"$1\" = \"print\" ]; then\n" +
+		"  if [ -n \"$LAUNCHCTL_PRINT_FAIL\" ]; then\n" +
+		"    exit 1\n" +
+		"  fi\n" +
+		"  if [ -f \"$LAUNCHCTL_STATE/unloaded\" ]; then\n" +
+		"    exit 1\n" +
+		"  fi\n" +
 		"fi\n" +
 		"exit 0\n"
 	scriptPath := filepath.Join(binDir, "launchctl")
@@ -49,6 +64,7 @@ func stubLaunchctl(t *testing.T) string {
 	}
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("LAUNCHCTL_LOG", logPath)
+	t.Setenv("LAUNCHCTL_STATE", stateDir)
 	return logPath
 }
 
