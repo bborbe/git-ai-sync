@@ -11,10 +11,11 @@ jobs:
   # agent: its GitHub App holds no `workflows` permission, so any agent commit
   # touching .github/workflows/ is rejected at push.
   #
-  # The former Python `test` job was removed with the Python install/test path —
-  # it ran `make test` / `make check` on a Python runner, and both targets now
-  # resolve to Go commands.
-  go:
+  # This job keeps the name `test` on purpose: `master`'s ruleset requires the
+  # status check `test`, so renaming it would leave the PR permanently BLOCKED.
+  # The former Python `test` job it replaces ran `make test` / `make check` on a
+  # Python runner; both targets now resolve to Go commands.
+  test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
