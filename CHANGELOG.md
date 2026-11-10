@@ -8,7 +8,7 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 * MINOR version when you add functionality in a backwards-compatible manner, and
 * PATCH version when you make backwards-compatible bug fixes.
 
-## Unreleased
+## v0.18.3
 
 - fix: record the launch path of the `git-ai-sync` binary in the launchd plist instead of the symlink target it resolves to, so a package-manager upgrade that replaces the link's target leaves the agent startable instead of naming a deleted directory
 
