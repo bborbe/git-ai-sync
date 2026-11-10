@@ -135,6 +135,94 @@ func TestRenderPlistRequiresPaths(t *testing.T) {
 	}
 }
 
+func TestResolveBinaryPath(t *testing.T) {
+	t.Run("symlink", func(t *testing.T) {
+		dir := t.TempDir()
+		realDir := filepath.Join(dir, "real")
+		if err := os.MkdirAll(realDir, 0o755); err != nil {
+			t.Fatalf("create real directory: %v", err)
+		}
+		realFile := filepath.Join(realDir, "x")
+		if err := os.WriteFile(realFile, nil, 0o755); err != nil {
+			t.Fatalf("create real file: %v", err)
+		}
+		link := filepath.Join(dir, "link")
+		if err := os.Symlink(realDir, link); err != nil {
+			t.Fatalf("create symlink: %v", err)
+		}
+
+		launchPath := filepath.Join(link, "x")
+		if got := resolveBinaryPath(launchPath); got != launchPath {
+			t.Errorf("resolveBinaryPath(%q) = %q, want the launch path %q", launchPath, got, launchPath)
+		}
+		if got := resolveBinaryPath(launchPath); got == realFile {
+			t.Errorf("resolveBinaryPath(%q) = %q, want the link, not its target", launchPath, got)
+		}
+	})
+
+	t.Run("plain-path", func(t *testing.T) {
+		// /tmp is a symlink to /private/tmp on macOS, so this case
+		// discriminates there; on Linux (CI runs on ubuntu-latest, where
+		// /tmp is a real directory) it only proves the value is returned
+		// unchanged.
+		file, err := os.CreateTemp("/tmp", "git-ai-sync-launch-path-*")
+		if err != nil {
+			t.Fatalf("create temp file under /tmp: %v", err)
+		}
+		name := file.Name()
+		if err := file.Close(); err != nil {
+			t.Fatalf("close temp file: %v", err)
+		}
+		defer func() { _ = os.Remove(name) }()
+
+		if got := resolveBinaryPath(name); !strings.HasPrefix(got, "/tmp/") {
+			t.Errorf("resolveBinaryPath(%q) = %q, want it to still begin /tmp/", name, got)
+		}
+	})
+}
+
+func TestRenderPlistKeepsLaunchPath(t *testing.T) {
+	opts := testOptions(t.TempDir())
+	launchPath := "/opt/homebrew/bin/git-ai-sync"
+	target := "/opt/homebrew/Caskroom/git-ai-sync/0.18.0/git-ai-sync"
+	opts.BinaryPath = launchPath
+
+	data, err := RenderPlist(opts)
+	if err != nil {
+		t.Fatalf("RenderPlist: %v", err)
+	}
+	document := string(data)
+
+	assertContains(t, document, "<string>"+launchPath+"</string>")
+	if strings.Contains(document, target) {
+		t.Errorf("plist contains the link target %q instead of only the launch path:\n%s", target, document)
+	}
+	assertInOrder(t, document,
+		"<key>ProgramArguments</key>",
+		"<string>"+launchPath+"</string>",
+		"<string>supervise</string>",
+		"<string>--config</string>",
+		"<string>"+opts.Config.ConfigPath+"</string>",
+	)
+}
+
+func TestResolveOptions(t *testing.T) {
+	t.Run("binarypath-override", func(t *testing.T) {
+		linkPath := "/opt/homebrew/bin/git-ai-sync"
+		opts, err := ResolveOptions(context.Background(), Options{
+			HomeDir:    t.TempDir(),
+			UID:        501,
+			BinaryPath: linkPath,
+		})
+		if err != nil {
+			t.Fatalf("ResolveOptions: %v", err)
+		}
+		if opts.BinaryPath != linkPath {
+			t.Errorf("BinaryPath = %q, want the caller-supplied %q", opts.BinaryPath, linkPath)
+		}
+	})
+}
+
 func writeLaunchctlStub(t *testing.T, body string) string {
 	t.Helper()
 	dir := t.TempDir()

@@ -123,13 +123,9 @@ func TestInstallWritesPlistAndBootstraps(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve executable: %v", err)
 	}
-	resolved, err := filepath.EvalSymlinks(executable)
-	if err != nil {
-		t.Fatalf("resolve executable symlinks: %v", err)
-	}
-	requireContains(t, document, "<string>"+resolved+"</string>")
+	requireContains(t, document, "<string>"+executable+"</string>")
 	requireOrdered(t, document,
-		"<string>"+resolved+"</string>",
+		"<string>"+executable+"</string>",
 		"<string>supervise</string>",
 		"<string>--config</string>",
 		"<string>"+configPath+"</string>",

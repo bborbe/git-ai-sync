@@ -12,6 +12,10 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 
 - feat: publish darwin/linux Go binary archives via GoReleaser and retire the Python install/test/format/lint targets, so the CLI installs from a release asset instead of a local build
 
+## v0.18.3
+
+- fix: record the launch path of the `git-ai-sync` binary in the launchd plist instead of the symlink target it resolves to, so a package-manager upgrade that replaces the link's target leaves the agent startable instead of naming a deleted directory
+
 ## v0.18.2
 
 - fix: make `git-ai-sync install` wait for the booted-out launchd job to disappear and retry a raced bootstrap once, so reinstalling against a loaded agent converges instead of exiting 1 and leaving it stopped; `status` prints `never` when no metrics push is recorded
