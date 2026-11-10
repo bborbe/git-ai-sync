@@ -1,9 +1,10 @@
 ---
-status: verifying
+status: completed
 approved: "2026-11-10T13:41:01Z"
 generating: "2026-11-10T14:23:51Z"
 prompted: "2026-11-10T14:38:37Z"
 verifying: "2026-11-10T14:57:14Z"
+completed: "2026-11-10T15:00:29Z"
 branch: dark-factory/install-reload-race
 ---
 
