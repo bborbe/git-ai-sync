@@ -11,6 +11,7 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 ## Unreleased
 
 - feat: add `internal/launchd` plus `git-ai-sync install`, `uninstall` and `status`, a baseline-compliant single launchd agent for the supervisor, bootout-then-bootstrap loading, an idempotent plist, and a `docs/launchd-service.md` rewrite for the Go path
+- test: prove an install plus two supervisor cycles leave the pushgateway password only in the `0600` config file, absent from the plist, the state file, the captured log, and every file under `$HOME/Library` and `$HOME/.local/state`, while the pushgateway still receives the Basic credential
 
 ## v0.17.0
 

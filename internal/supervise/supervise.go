@@ -9,6 +9,8 @@ import (
 	stdsync "sync"
 	"time"
 
+	"github.com/bborbe/errors"
+
 	"github.com/bborbe/git-ai-sync/internal/clock"
 	"github.com/bborbe/git-ai-sync/internal/config"
 	"github.com/bborbe/git-ai-sync/internal/git"
@@ -45,6 +47,16 @@ func Run(ctx context.Context, opts Options) error {
 		opts.Sleep = sleepContext
 	}
 
+	collector, err := newStateCollector(ctx, opts.Config.StateFile, opts.Logger)
+	if err != nil {
+		return errors.Wrapf(ctx, err, "create state collector")
+	}
+	deps := runnerDeps{
+		metrics:   newMetrics(opts.Config.Pushgateway, opts.Logger),
+		collector: collector,
+		failures:  &failureCounter{},
+	}
+
 	opts.Logger.Info("supervise started", "vaults", len(opts.Config.Vaults))
 
 	var wg stdsync.WaitGroup
@@ -52,14 +64,14 @@ func Run(ctx context.Context, opts Options) error {
 		wg.Add(1)
 		go func(vault string) {
 			defer wg.Done()
-			runVault(ctx, opts, vault)
+			runVault(ctx, opts, vault, deps)
 		}(vault)
 	}
 	wg.Wait()
 	return nil
 }
 
-func runVault(ctx context.Context, opts Options, vault string) {
+func runVault(ctx context.Context, opts Options, vault string, deps runnerDeps) {
 	for ctx.Err() == nil {
 		func() {
 			defer func() {
@@ -76,7 +88,7 @@ func runVault(ctx context.Context, opts Options, vault string) {
 				Clock:        opts.Clock,
 				Logger:       opts.Logger,
 				Sleep:        opts.Sleep,
-				Runner:       opts.runnerFor(opts.Logger),
+				Runner:       opts.runnerFor(opts.Logger, deps),
 			})
 			if ctx.Err() != nil {
 				return
@@ -90,10 +102,42 @@ func runVault(ctx context.Context, opts Options, vault string) {
 	}
 }
 
-func (o Options) runnerFor(logger *slog.Logger) watch.Runner {
+type runnerDeps struct {
+	metrics   *metricsClient
+	collector *stateCollector
+	failures  *failureCounter
+}
+
+// failureCounter tracks each vault's consecutive failed cycles for the state
+// file. The vault goroutines share it.
+type failureCounter struct {
+	mutex  stdsync.Mutex
+	counts map[string]int
+}
+
+// record increments the vault's failure count on failure, resets it on success,
+// and returns the current count.
+func (c *failureCounter) record(repo string, success bool) int {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	if c.counts == nil {
+		c.counts = map[string]int{}
+	}
+	if success {
+		c.counts[repo] = 0
+		return 0
+	}
+	c.counts[repo]++
+	return c.counts[repo]
+}
+
+func (o Options) runnerFor(logger *slog.Logger, deps runnerDeps) watch.Runner {
 	base := o.Runner
 	return func(ctx context.Context, repo string, sopts sync.Options) (sync.Result, error) {
 		res, err := base(ctx, repo, sopts)
+		now := o.Clock.Now()
+		success := err == nil && res.CommitErr == nil
+
 		if err == nil && res.Pushed {
 			sha, shaErr := git.RevParse(ctx, repo, "HEAD")
 			if shaErr != nil {
@@ -101,6 +145,24 @@ func (o Options) runnerFor(logger *slog.Logger) watch.Runner {
 			} else {
 				logger.Info("push", "path", repo, "sha", sha)
 			}
+		}
+
+		if deps.metrics.enabled() && deps.metrics.push(ctx, Label(repo), now, success) {
+			deps.collector.RecordMetricsPush(ctx, now)
+		}
+
+		if success {
+			deps.failures.record(repo, true)
+			deps.collector.RecordSuccess(ctx, repo, now)
+		} else {
+			lastError := ""
+			if err != nil {
+				lastError = err.Error()
+			} else if res.CommitErr != nil {
+				lastError = res.CommitErr.Error()
+			}
+			count := deps.failures.record(repo, false)
+			deps.collector.RecordFailure(ctx, repo, now, count, lastError)
 		}
 		return res, err
 	}

@@ -1,7 +1,8 @@
 ---
-status: draft
+status: approved
 spec: [010-multi-vault-supervisor]
 created: "2026-11-10T09:21:02Z"
+queued: "2026-11-10T09:50:17Z"
 branch: dark-factory/multi-vault-supervisor
 ---
 

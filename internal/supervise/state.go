@@ -76,7 +76,7 @@ func (c *stateCollector) RecordFailure(ctx context.Context, repo string, _ time.
 	defer c.mutex.Unlock()
 	vault := c.vault(repo)
 	vault.ConsecutiveFailures = consecutiveFailures
-	vault.LastError = lastError
+	vault.LastError = redactURLs(lastError)
 	c.write(ctx)
 }
 

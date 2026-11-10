@@ -1,8 +1,13 @@
 ---
-status: approved
+status: completed
 spec: [010-multi-vault-supervisor]
+summary: Added the end-to-end secret-isolation test plus the metrics/state wiring it depends on, proving the pushgateway password stays only in the 0600 config file across install and supervisor cycles
+execution_id: 343bcb29-c431-540c-b449-0eef0950c240-exec-039-spec-010-secret-isolation
+dark-factory-version: dev
 created: "2026-11-10T09:21:02Z"
 queued: "2026-11-10T09:44:52Z"
+started: "2026-11-10T09:48:09Z"
+completed: "2026-11-10T09:54:11Z"
 branch: dark-factory/multi-vault-supervisor
 ---
 
