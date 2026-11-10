@@ -5,14 +5,18 @@ import (
 	"context"
 	stderrors "errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
+	"github.com/bborbe/errors"
 	"github.com/spf13/cobra"
 
 	"github.com/bborbe/git-ai-sync/internal/clock"
 	"github.com/bborbe/git-ai-sync/internal/config"
+	"github.com/bborbe/git-ai-sync/internal/conflict"
 	"github.com/bborbe/git-ai-sync/internal/git"
 	"github.com/bborbe/git-ai-sync/internal/lock"
 	"github.com/bborbe/git-ai-sync/internal/logging"
@@ -54,6 +58,7 @@ func newRootCommand(ctx context.Context) *cobra.Command {
 
 	rootCmd.AddCommand(newWatchCommand(ctx))
 	rootCmd.AddCommand(newSyncCommand(ctx))
+	rootCmd.AddCommand(newResolveCommand(ctx))
 	return rootCmd
 }
 
@@ -173,6 +178,88 @@ func newSyncCommand(ctx context.Context) *cobra.Command {
 	cmd.Flags().String("strategy", "", "Pull strategy: merge or rebase")
 	cmd.Flags().String("log-level", "", "Logging level")
 	return cmd
+}
+
+func newResolveCommand(ctx context.Context) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "resolve [path]",
+		Short: "Resolve merge or rebase conflicts with Claude and push",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			runCtx := commandContext(ctx, cmd)
+			logger := logging.New(cmd.ErrOrStderr(), slog.LevelInfo)
+
+			repo, err := git.FindRepo(runCtx, pathArg(args))
+			if err != nil {
+				return errors.Wrapf(runCtx, err, "find repository")
+			}
+			l, err := lock.Acquire(runCtx, repo)
+			if err != nil {
+				return errors.Wrapf(runCtx, err, "acquire repository lock")
+			}
+			defer func() {
+				if releaseErr := l.Release(runCtx); releaseErr != nil {
+					logger.Warn(fmt.Sprintf("failed to release lock: %v", releaseErr))
+				}
+			}()
+
+			inRebase := git.IsInRebase(repo)
+			inMerge := git.IsInMerge(repo)
+			if !inRebase && !inMerge {
+				return errors.Errorf(runCtx, "not in a merge or rebase conflict state: %s", repo)
+			}
+			files, err := git.ConflictedFiles(runCtx, repo)
+			if err != nil {
+				return errors.Wrapf(runCtx, err, "list conflicted files")
+			}
+			if len(files) == 0 {
+				state := "merge"
+				if inRebase {
+					state = "rebase"
+				}
+				return errors.Errorf(runCtx, "no conflicted files found in the %s state", state)
+			}
+			logger.Info(fmt.Sprintf("found %d conflicted file(s): %s", len(files), strings.Join(files, ", ")))
+
+			failed := make([]string, 0)
+			for _, path := range files {
+				if err := conflict.ResolveFile(runCtx, repo, path); err != nil {
+					logger.Error(fmt.Sprintf("failed to resolve %s: %v", path, err))
+					failed = append(failed, path)
+					continue
+				}
+				logger.Info(fmt.Sprintf("resolved and staged %s", path))
+			}
+			if len(failed) > 0 {
+				return errors.Errorf(runCtx, "failed to resolve %d file(s): %s", len(failed), strings.Join(failed, ", "))
+			}
+
+			if inRebase {
+				if err := git.ContinueRebase(runCtx, repo); err != nil {
+					return continuationError(runCtx, repo, "rebase", err)
+				}
+			} else {
+				if err := git.ContinueMerge(runCtx, repo); err != nil {
+					return continuationError(runCtx, repo, "merge", err)
+				}
+			}
+
+			if err := git.Push(runCtx, repo); err != nil {
+				return errors.Wrapf(runCtx, err, "push after resolving conflicts")
+			}
+			logger.Info("resolved all conflicts, continued, and pushed")
+			return nil
+		},
+	}
+	return cmd
+}
+
+func continuationError(ctx context.Context, repo string, kind string, cause error) error {
+	conflicted, listErr := git.ConflictedFiles(ctx, repo)
+	if listErr == nil && len(conflicted) > 0 {
+		return errors.Wrapf(ctx, cause, "continuation failed - still have conflicts in: %s", strings.Join(conflicted, ", "))
+	}
+	return errors.Wrapf(ctx, cause, "continue %s", kind)
 }
 
 func commandContext(fallback context.Context, cmd *cobra.Command) context.Context {

@@ -258,3 +258,80 @@ func TestGenerateCommitMessage(t *testing.T) {
 		t.Errorf("GenerateCommitMessage = %q, want %q", got, want)
 	}
 }
+
+func TestIsInMerge(t *testing.T) {
+	f := newFixture(t)
+	if IsInMerge(f.clone) {
+		t.Error("fresh clone reports a merge state")
+	}
+	if err := os.WriteFile(filepath.Join(f.clone, ".git", "MERGE_HEAD"), []byte("deadbeef\n"), 0o644); err != nil {
+		t.Fatalf("write MERGE_HEAD: %v", err)
+	}
+	if !IsInMerge(f.clone) {
+		t.Error("clone with MERGE_HEAD does not report a merge state")
+	}
+}
+
+func TestIsInRebase(t *testing.T) {
+	f := newFixture(t)
+	if IsInRebase(f.clone) {
+		t.Error("fresh clone reports a rebase state")
+	}
+
+	rebaseMerge := filepath.Join(f.clone, ".git", "rebase-merge")
+	if err := os.Mkdir(rebaseMerge, 0o755); err != nil {
+		t.Fatalf("create rebase-merge: %v", err)
+	}
+	if !IsInRebase(f.clone) {
+		t.Error("clone with rebase-merge does not report a rebase state")
+	}
+	if err := os.Remove(rebaseMerge); err != nil {
+		t.Fatalf("remove rebase-merge: %v", err)
+	}
+
+	if err := os.Mkdir(filepath.Join(f.clone, ".git", "rebase-apply"), 0o755); err != nil {
+		t.Fatalf("create rebase-apply: %v", err)
+	}
+	if !IsInRebase(f.clone) {
+		t.Error("clone with rebase-apply does not report a rebase state")
+	}
+}
+
+func TestConflictedFiles(t *testing.T) {
+	f := newFixture(t)
+	writeFile(t, f.clone, "note.md", "local\n")
+	gitCmd(t, f.clone, "add", "note.md")
+	gitCmd(t, f.clone, "commit", "-m", "local edit")
+
+	other := filepath.Join(f.root, "other-conflicted")
+	gitCmd(t, f.root, "clone", f.remote, other)
+	configure(t, other)
+	writeFile(t, other, "note.md", "remote\n")
+	gitCmd(t, other, "add", "note.md")
+	gitCmd(t, other, "commit", "-m", "remote edit")
+	gitCmd(t, other, "push", "origin", "master")
+
+	if err := Pull(context.Background(), f.clone, StrategyMerge); err == nil {
+		t.Fatal("Pull succeeded, want conflict")
+	}
+
+	files, err := ConflictedFiles(context.Background(), f.clone)
+	if err != nil {
+		t.Fatalf("ConflictedFiles: %v", err)
+	}
+	if len(files) != 1 || files[0] != "note.md" {
+		t.Errorf("ConflictedFiles = %v, want [note.md]", files)
+	}
+}
+
+func TestStageFile(t *testing.T) {
+	f := newFixture(t)
+	writeFile(t, f.clone, "new.txt", "x\n")
+
+	if err := StageFile(context.Background(), f.clone, "new.txt"); err != nil {
+		t.Fatalf("StageFile: %v", err)
+	}
+	if got := gitCmd(t, f.clone, "diff", "--cached", "--name-only"); !strings.Contains(got, "new.txt") {
+		t.Errorf("staged files = %q, want new.txt", got)
+	}
+}

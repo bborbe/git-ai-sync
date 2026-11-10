@@ -98,6 +98,68 @@ func inConflictState(repo string, strategy Strategy) bool {
 	return err == nil
 }
 
+// IsInMerge reports whether repo is in a merge state (.git/MERGE_HEAD exists).
+func IsInMerge(repo string) bool {
+	_, err := os.Stat(filepath.Join(repo, ".git", "MERGE_HEAD"))
+	return err == nil
+}
+
+// IsInRebase reports whether repo is in a rebase state
+// (.git/rebase-merge or .git/rebase-apply exists).
+func IsInRebase(repo string) bool {
+	if _, err := os.Stat(filepath.Join(repo, ".git", "rebase-merge")); err == nil {
+		return true
+	}
+	_, err := os.Stat(filepath.Join(repo, ".git", "rebase-apply"))
+	return err == nil
+}
+
+// ConflictedFiles returns the paths with unresolved conflicts
+// (git diff --name-only --diff-filter=U), relative to repo.
+func ConflictedFiles(ctx context.Context, repo string) ([]string, error) {
+	out, err := runGit(ctx, repo, "diff", "--name-only", "--diff-filter=U")
+	if err != nil {
+		return nil, errors.Wrapf(ctx, err, "list conflicted files")
+	}
+	var files []string
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			files = append(files, line)
+		}
+	}
+	return files, nil
+}
+
+// StageFile stages one path (git add -- <path>).
+func StageFile(ctx context.Context, repo string, path string) error {
+	_, err := runGit(ctx, repo, "add", "--", path)
+	if err != nil {
+		return errors.Wrapf(ctx, err, "stage %s", path)
+	}
+	return nil
+}
+
+// ContinueMerge completes a merge after its conflicts are resolved
+// (git commit --no-edit).
+func ContinueMerge(ctx context.Context, repo string) error {
+	_, err := runGit(ctx, repo, "commit", "--no-edit")
+	if err != nil {
+		return errors.Wrapf(ctx, err, "continue merge")
+	}
+	return nil
+}
+
+// ContinueRebase continues a rebase after its conflicts are resolved
+// (git rebase --continue).
+func ContinueRebase(ctx context.Context, repo string) error {
+	_, err := runGit(ctx, repo, "rebase", "--continue")
+	if err != nil {
+		return errors.Wrapf(ctx, err, "continue rebase")
+	}
+	return nil
+}
+
 // Push pushes the current branch to its upstream.
 func Push(ctx context.Context, repo string) error {
 	_, err := runGit(ctx, repo, "push")
