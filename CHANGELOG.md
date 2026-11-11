@@ -8,7 +8,7 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 * MINOR version when you add functionality in a backwards-compatible manner, and
 * PATCH version when you make backwards-compatible bug fixes.
 
-## Unreleased
+## v0.19.2
 
 - fix: drop the Homebrew cask postflight hook, so `brew install --cask git-ai-sync` stops failing with `undefined local variable or method 'staged_path'` — the install-steps DSL has no `staged_path`, and the quarantine strip was cosmetic
 
