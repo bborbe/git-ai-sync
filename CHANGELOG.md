@@ -8,7 +8,7 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 * MINOR version when you add functionality in a backwards-compatible manner, and
 * PATCH version when you make backwards-compatible bug fixes.
 
-## Unreleased
+## v0.19.1
 
 - fix: emit a Ruby `system_command` in the generated Homebrew cask's postflight hook, so `brew install --cask git-ai-sync` stops failing with `unknown regexp option - b`
 
