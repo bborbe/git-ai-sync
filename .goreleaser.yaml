@@ -57,9 +57,3 @@ homebrew_casks:
     commit_author:
       name: goreleaser-bot
       email: goreleaser@benjamin-borbe.de
-    # The binary is unsigned; strip the download quarantine so it runs without a
-    # Gatekeeper "unidentified developer" prompt on first use.
-    hooks:
-      post:
-        install_steps: |
-          system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/git-ai-sync"]
