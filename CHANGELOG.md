@@ -8,6 +8,10 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 * MINOR version when you add functionality in a backwards-compatible manner, and
 * PATCH version when you make backwards-compatible bug fixes.
 
+## Unreleased
+
+- fix: restore the Homebrew cask's quarantine strip so `brew install --cask git-ai-sync` yields a binary that runs — without it macOS records an execution verdict against the Caskroom path and the installed binary hangs in `_dyld_start`
+
 ## v0.19.2
 
 - fix: drop the Homebrew cask postflight hook, so `brew install --cask git-ai-sync` stops failing with `undefined local variable or method 'staged_path'` — the install-steps DSL has no `staged_path`, and the quarantine strip was cosmetic
