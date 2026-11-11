@@ -62,4 +62,4 @@ homebrew_casks:
     hooks:
       post:
         install_steps: |
-          /usr/bin/xattr -dr com.apple.quarantine "#{staged_path}/git-ai-sync"
+          system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/git-ai-sync"]
