@@ -57,3 +57,15 @@ homebrew_casks:
     commit_author:
       name: goreleaser-bot
       email: goreleaser@benjamin-borbe.de
+    # The binary is unsigned. Without this strip every install lands a quarantined
+    # binary, and macOS records an execution verdict against its Caskroom path the
+    # first time it is run — after which the same bytes hang in `_dyld_start` at
+    # that path while running fine from anywhere else.
+    #
+    # `hooks.post.install` (Ruby) is deprecated in favour of `install_steps`, but
+    # `install_steps` is evaluated in the Homebrew::InstallSteps DSL, which has no
+    # `staged_path` — so the strip cannot be expressed there. Keep the working form.
+    hooks:
+      post:
+        install: |
+          system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/git-ai-sync"]
