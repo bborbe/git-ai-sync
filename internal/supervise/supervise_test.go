@@ -3,8 +3,10 @@ package supervise
 import (
 	"bytes"
 	"context"
+	stderrors "errors"
 	"fmt"
 	"log/slog"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,6 +18,7 @@ import (
 
 	"github.com/bborbe/git-ai-sync/internal/clock"
 	"github.com/bborbe/git-ai-sync/internal/config"
+	"github.com/bborbe/git-ai-sync/internal/git"
 	"github.com/bborbe/git-ai-sync/internal/logging"
 	"github.com/bborbe/git-ai-sync/internal/watch"
 )
@@ -322,6 +325,94 @@ func TestRunWiresConflictResolver(t *testing.T) {
 		}
 	default:
 		t.Fatal("WatchRun was never called")
+	}
+}
+
+// TestConflictAlertKeysOnRepo proves the ConflictAlert closure derives the card
+// key from the repository it receives, matching runnerFor's stall tracker, not
+// from the configured vault path.
+func TestConflictAlertKeysOnRepo(t *testing.T) {
+	t.Setenv("GIT_EDITOR", "true")
+	fixture := newSuperviseFixture(t)
+	subdir := filepath.Join(fixture.clone, "sub")
+	if err := os.MkdirAll(subdir, 0o755); err != nil {
+		t.Fatalf("mkdir subdir: %v", err)
+	}
+
+	stubDir := t.TempDir()
+	stubLog := filepath.Join(t.TempDir(), "attention.log")
+	script := filepath.Join(stubDir, "attention-ask.py")
+	const stub = `import json, os, sys
+with open(os.environ["ATTENTION_STUB_LOG"], "a") as f:
+    f.write(json.dumps({"argv": sys.argv[1:], "store": os.environ.get("ATTENTION_STORE_URL")}) + "\n")
+print("ITEM_ID: " + "a" * 32)
+`
+	if err := os.WriteFile(script, []byte(stub), 0o644); err != nil {
+		t.Fatalf("write attention stub: %v", err)
+	}
+	t.Setenv("ATTENTION_STUB_LOG", stubLog)
+	t.Setenv("PATH", stubDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	store := &storeRecorder{}
+	storeServer := httptest.NewServer(store)
+	defer storeServer.Close()
+
+	cfg := superviseConfig([]string{subdir})
+	cfg.StateFile = filepath.Join(t.TempDir(), "status.json")
+	cfg.AttentionScript = script
+	cfg.AttentionStoreURL = storeServer.URL
+
+	repo, err := git.FindRepo(context.Background(), subdir)
+	if err != nil {
+		t.Fatalf("find repo for %s: %v", subdir, err)
+	}
+	if Label(repo) == Label(subdir) {
+		t.Fatalf("fixture does not distinguish repo %q from vault %q", repo, subdir)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	captured := make(chan watch.Options, 1)
+	done := make(chan error, 1)
+	go func() {
+		done <- Run(ctx, Options{
+			Config: cfg,
+			Logger: logging.New(&superviseLogBuffer{}, slog.LevelDebug),
+			Clock:  clock.New(),
+			WatchRun: func(_ context.Context, opts watch.Options) error {
+				select {
+				case captured <- opts:
+				default:
+				}
+				return nil
+			},
+		})
+	}()
+
+	var opts watch.Options
+	select {
+	case opts = <-captured:
+	case <-time.After(5 * time.Second):
+		t.Fatal("WatchRun was never called")
+	}
+
+	opts.ConflictAlert(ctx, repo, stderrors.New("boom"))
+
+	invocations := waitForInvocations(t, stubLog, 1, 10*time.Second)
+	dedupKey, ok := flagValue(invocations[0].Argv, "--dedup-key")
+	want := "git-ai-sync-" + Label(repo) + "-stalled"
+	if !ok || dedupKey != want {
+		t.Errorf("--dedup-key = %q (present %t), want %q (repo label, not vault label %q)", dedupKey, ok, want, Label(subdir))
+	}
+
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Run returned an error: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not return within 5s of cancellation")
 	}
 }
 

@@ -387,13 +387,6 @@ func newResolveCommand(ctx context.Context) *cobra.Command {
 			if err != nil {
 				return errors.Wrapf(runCtx, err, "list conflicted files")
 			}
-			if len(files) == 0 && !inMerge && !inRebase {
-				state := "merge"
-				if inRebase {
-					state = "rebase"
-				}
-				return errors.Errorf(runCtx, "no conflicted files found in the %s state", state)
-			}
 			if len(files) > 0 {
 				logger.Info(fmt.Sprintf("found %d conflicted file(s): %s", len(files), strings.Join(files, ", ")))
 

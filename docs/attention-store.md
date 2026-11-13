@@ -6,8 +6,8 @@
 
 A card is posted by invoking `attention-ask.py`'s `post` subcommand as an argument vector — never through a shell. The card sets these flags:
 
-- `--dedup-key git-ai-sync-<vault>-stalled` — the re-post suppression key for one vault's stall.
-- `--producer-id git-ai-sync-<vault>` — the explicit producer id for the card.
+- `--dedup-key git-ai-sync-<repo>-stalled` — the re-post suppression key for one repository's stall; the label is derived from the repository path, not the configured vault path.
+- `--producer-id git-ai-sync-<repo>` — the explicit producer id for the card.
 - `--producer-kind cron` — the producer kind.
 - `--payload` — a one-line summary naming the vault and the number of consecutive failed cycles.
 - `--context` — the repository path, the time of the first failure in the run, and the last error (URL-shaped runs are redacted before truncation, so no credential reaches a card).

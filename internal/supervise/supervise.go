@@ -93,7 +93,8 @@ func runVault(ctx context.Context, opts Options, vault string, deps runnerDeps) 
 				Runner:           opts.runnerFor(opts.Logger, deps),
 				ConflictResolver: sync.ResolveConflicts,
 				// The card reuses the stall dedup key git-ai-sync-<label>-stalled,
-				// so one card exists per vault regardless of which path posted it.
+				// keyed on the repository the runner reports, matching runnerFor's
+				// stall tracker. The vault is display text only.
 				ConflictAlert: func(ctx context.Context, repo string, cause error) {
 					if !deps.notifier.enabled() {
 						return
@@ -102,8 +103,8 @@ func runVault(ctx context.Context, opts Options, vault string, deps runnerDeps) 
 						"conflict resolution failed after %d attempts: %v",
 						watch.MaxConflictAttempts, cause,
 					)
-					if itemID, ok := deps.notifier.post(ctx, Label(vault), vault, 1, opts.Clock.Now(), lastError); ok {
-						deps.tracker.setOutstanding(vault, itemID)
+					if itemID, ok := deps.notifier.post(ctx, Label(repo), vault, 1, opts.Clock.Now(), lastError); ok {
+						deps.tracker.setOutstanding(repo, itemID)
 					}
 				},
 			})

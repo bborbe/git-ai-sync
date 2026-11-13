@@ -535,6 +535,43 @@ func TestLoopSuccessResetsAlerted(t *testing.T) {
 	}
 }
 
+// TestLoopHealthyCycleResetsAlerted proves a successful sync cycle — not only a
+// successful resolution — clears the dedup, restoring the full retry budget and
+// letting a later conflict post a second card.
+func TestLoopHealthyCycleResetsAlerted(t *testing.T) {
+	h := newHarness([]time.Duration{10 * time.Second}, 1000)
+	h.runner.handle = func(call int) (sync.Result, error) {
+		if call == 2 {
+			return sync.Result{}, nil
+		}
+		return sync.Result{}, errors.Wrapf(h.ctx, git.ErrConflict, "boom")
+	}
+
+	resolverCalls := 0
+	resolve := func(context.Context, string) error {
+		resolverCalls++
+		return stderrors.New("resolve failed")
+	}
+	alerts := 0
+	alert := func(context.Context, string, error) {
+		alerts++
+		if alerts == 2 {
+			h.cancel()
+		}
+	}
+	h.runLoopWith(t, time.Second, time.Minute, resolve, alert, defaultConflictAttemptTimeout)
+
+	if resolverCalls != 2*MaxConflictAttempts {
+		t.Errorf(
+			"resolver invoked %d times, want %d (full cap again after the healthy cycle)",
+			resolverCalls, 2*MaxConflictAttempts,
+		)
+	}
+	if alerts != 2 {
+		t.Errorf("ConflictAlert called %d times, want 2", alerts)
+	}
+}
+
 // TestLoopConflictAttemptTimeoutBoundsHungResolver proves a resolver blocked
 // until its context is done consumes one attempt per timeout.
 func TestLoopConflictAttemptTimeoutBoundsHungResolver(t *testing.T) {

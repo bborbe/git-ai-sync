@@ -261,6 +261,10 @@ func loop(
 			continue
 		}
 		windowTracker.RecordSuccess(now)
+		// Any healthy cycle clears the conflict-alert dedup, not only a
+		// resolver success, so a conflict that heals another way restores the
+		// full retry budget and future cards.
+		alerted = false
 	}
 }
 
