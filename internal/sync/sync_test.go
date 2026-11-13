@@ -2,7 +2,7 @@ package sync
 
 import (
 	"context"
-	"errors"
+	stderrors "errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -154,6 +154,37 @@ func TestDirtyCycleLandsEditAndRemoteCommit(t *testing.T) {
 				t.Errorf("(f) remote commit %s is not an ancestor of HEAD", remoteSHA)
 			}
 		})
+	}
+}
+
+// TestRunRefusesConflictedRepository proves the cycle never stages or commits a
+// repository that is still mid-merge, and routes it back to the resolver by
+// wrapping git.ErrConflict.
+func TestRunRefusesConflictedRepository(t *testing.T) {
+	f := newFixture(t)
+	seedConflict(t, f, "pull", "--no-rebase")
+	before := runGit(t, f.clone, "rev-parse", "HEAD")
+
+	_, err := Run(context.Background(), f.clone, Options{
+		Strategy:      git.StrategyMerge,
+		CommitPrefix:  "auto",
+		PullWhenClean: true,
+		Clock:         fakeClock(),
+	})
+	if err == nil {
+		t.Fatal("Run succeeded on a conflicted repository, want an error")
+	}
+	if !stderrors.Is(err, git.ErrConflict) {
+		t.Errorf("error %v does not wrap git.ErrConflict", err)
+	}
+	if !fileExists(filepath.Join(f.clone, ".git", "MERGE_HEAD")) {
+		t.Error(".git/MERGE_HEAD was removed; Run staged or committed the conflict")
+	}
+	if got := runGit(t, f.clone, "status", "--porcelain"); !strings.Contains(got, "note.md") {
+		t.Errorf("status does not list the conflicted path: %q", got)
+	}
+	if after := runGit(t, f.clone, "rev-parse", "HEAD"); after != before {
+		t.Errorf("HEAD moved from %s to %s; Run committed the conflict", before, after)
 	}
 }
 
@@ -393,7 +424,7 @@ func TestAutostashPopConflictStopsCycle(t *testing.T) {
 	if err == nil {
 		t.Fatal("Run succeeded, want an autostash pop conflict")
 	}
-	if !errors.Is(err, git.ErrConflict) {
+	if !stderrors.Is(err, git.ErrConflict) {
 		t.Errorf("error does not wrap ErrConflict: %v", err)
 	}
 	if len(result.Blocked) != 1 || result.Blocked[0] != "blocked.txt" {
@@ -426,7 +457,7 @@ func TestPreexistingUnmergedPathStopsCycle(t *testing.T) {
 	if err == nil {
 		t.Fatal("Run succeeded, want an unmerged-path error")
 	}
-	if !errors.Is(err, git.ErrConflict) {
+	if !stderrors.Is(err, git.ErrConflict) {
 		t.Errorf("error does not wrap ErrConflict: %v", err)
 	}
 	if result.Committed {

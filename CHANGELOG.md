@@ -11,7 +11,11 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 ## Unreleased
 
 - fix: commit the files the pre-commit hook accepts when one staged path is refused, leaving the refused path staged and named, so a single bad file no longer stalls a whole vault
-- fix: parse staged paths with git diff --cached --name-status -z so non-ASCII names commit, stop on an autostash pop conflict instead of committing conflict markers, and detect a global commit failure without bisecting every path
+- fix: parse staged paths with git diff --cached --name-status -z so non-ASCII names commit, and stop on an autostash pop conflict instead of committing conflict markers
+
+## v0.19.4
+
+- fix: resolve a merge conflict inside the watch loop instead of stopping, so one conflicted vault no longer halts syncing while every other vault stays healthy
 
 ## v0.19.3
 
