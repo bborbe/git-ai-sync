@@ -86,6 +86,24 @@ func Pull(ctx context.Context, repo string, strategy Strategy) error {
 	return err
 }
 
+// PullWithAutostash integrates remote commits with the given strategy, stashing
+// and restoring local changes around the merge (git pull --autostash). It lets a
+// pull proceed while a blocked path is still staged.
+func PullWithAutostash(ctx context.Context, repo string, strategy Strategy) error {
+	args := []string{"pull", "--no-rebase", "--autostash"}
+	if strategy == StrategyRebase {
+		args = []string{"pull", "--rebase", "--autostash"}
+	}
+	out, err := runGit(ctx, repo, args...)
+	if err == nil {
+		return nil
+	}
+	if inConflictState(repo, strategy) {
+		return errors.Wrapf(ctx, ErrConflict, "pull conflict: %s", out)
+	}
+	return err
+}
+
 func inConflictState(repo string, strategy Strategy) bool {
 	if strategy == StrategyRebase {
 		if _, err := os.Stat(filepath.Join(repo, ".git", "rebase-merge")); err == nil {
@@ -129,6 +147,44 @@ func ConflictedFiles(ctx context.Context, repo string) ([]string, error) {
 		}
 	}
 	return files, nil
+}
+
+// StagedFiles returns the staged changes as commit units
+// (git diff --cached --name-status). Each unit holds one path for an add,
+// modify, or delete, and both paths for a rename, so a partial commit cannot
+// split a rename into an add plus a stale original.
+func StagedFiles(ctx context.Context, repo string) ([][]string, error) {
+	out, err := runGit(ctx, repo, "diff", "--cached", "--name-status")
+	if err != nil {
+		return nil, errors.Wrapf(ctx, err, "list staged files")
+	}
+	var units [][]string
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimRight(line, "\r")
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		fields := strings.Split(line, "\t")
+		switch {
+		case len(fields) >= 3:
+			units = append(units, []string{fields[1], fields[2]})
+		case len(fields) == 2:
+			units = append(units, []string{fields[1]})
+		}
+	}
+	return units, nil
+}
+
+// CommitPaths commits only the named paths
+// (git commit --only -m <message> -- <paths>), leaving every other staged path
+// in the index.
+func CommitPaths(ctx context.Context, repo, message string, paths []string) error {
+	args := append([]string{"commit", "--only", "-m", message, "--"}, paths...)
+	_, err := runGit(ctx, repo, args...)
+	if err != nil {
+		return errors.Wrapf(ctx, err, "commit %s", strings.Join(paths, ", "))
+	}
+	return nil
 }
 
 // StageFile stages one path (git add -- <path>).

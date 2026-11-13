@@ -54,6 +54,12 @@ func configure(t *testing.T, dir string) {
 	gitCmd(t, dir, "config", "user.email", "test@example.com")
 	gitCmd(t, dir, "config", "user.name", "Test User")
 	gitCmd(t, dir, "config", "commit.gpgsign", "false")
+	// Pin core.hooksPath to this repository's own hooks directory so a global
+	// core.hooksPath on the developer's machine cannot redirect git away from
+	// the hooks these tests write. --absolute-git-dir yields <clone>/.git for a
+	// clone and <bare> for a bare repository.
+	hooksPath := filepath.Join(gitCmd(t, dir, "rev-parse", "--absolute-git-dir"), "hooks")
+	gitCmd(t, dir, "config", "--local", "core.hooksPath", hooksPath)
 }
 
 func gitCmd(t *testing.T, dir string, args ...string) string {
@@ -333,5 +339,87 @@ func TestStageFile(t *testing.T) {
 	}
 	if got := gitCmd(t, f.clone, "diff", "--cached", "--name-only"); !strings.Contains(got, "new.txt") {
 		t.Errorf("staged files = %q, want new.txt", got)
+	}
+}
+
+func TestStagedFiles(t *testing.T) {
+	f := newFixture(t)
+	writeFile(t, f.clone, "old.txt", "old\n")
+	gitCmd(t, f.clone, "add", ".")
+	gitCmd(t, f.clone, "commit", "-m", "add old")
+
+	writeFile(t, f.clone, "added.txt", "a\n")
+	writeFile(t, f.clone, "note.md", "hello\nedited\n")
+	gitCmd(t, f.clone, "add", "added.txt", "note.md")
+	gitCmd(t, f.clone, "mv", "old.txt", "renamed.txt")
+
+	units, err := StagedFiles(context.Background(), f.clone)
+	if err != nil {
+		t.Fatalf("StagedFiles: %v", err)
+	}
+	if len(units) != 3 {
+		t.Fatalf("StagedFiles = %v, want 3 units", units)
+	}
+
+	byPath := make(map[string][]string)
+	for _, unit := range units {
+		byPath[unit[0]] = unit
+	}
+	for _, name := range []string{"added.txt", "note.md"} {
+		unit, ok := byPath[name]
+		if !ok {
+			t.Errorf("StagedFiles is missing %s: %v", name, units)
+			continue
+		}
+		if len(unit) != 1 {
+			t.Errorf("unit for %s = %v, want a single path", name, unit)
+		}
+	}
+
+	rename, ok := byPath["old.txt"]
+	if !ok {
+		t.Fatalf("StagedFiles is missing the rename unit: %v", units)
+	}
+	if len(rename) != 2 || rename[0] != "old.txt" || rename[1] != "renamed.txt" {
+		t.Errorf("rename unit = %v, want [old.txt renamed.txt]", rename)
+	}
+}
+
+func TestCommitPaths(t *testing.T) {
+	f := newFixture(t)
+	writeFile(t, f.clone, "a.txt", "a\n")
+	writeFile(t, f.clone, "b.txt", "b\n")
+	gitCmd(t, f.clone, "add", "a.txt", "b.txt")
+
+	if err := CommitPaths(context.Background(), f.clone, "auto: only a", []string{"a.txt"}); err != nil {
+		t.Fatalf("CommitPaths: %v", err)
+	}
+	names := gitCmd(t, f.clone, "log", "-1", "--name-only", "--format=")
+	if !strings.Contains(names, "a.txt") {
+		t.Errorf("commit does not contain a.txt: %q", names)
+	}
+	if strings.Contains(names, "b.txt") {
+		t.Errorf("commit unexpectedly contains b.txt: %q", names)
+	}
+	if got := gitCmd(t, f.clone, "status", "--porcelain"); !strings.Contains(got, "b.txt") {
+		t.Errorf("b.txt is no longer staged: %q", got)
+	}
+}
+
+func TestCommitPathsHookRefusal(t *testing.T) {
+	f := newFixture(t)
+	hooksDir := filepath.Join(gitCmd(t, f.clone, "rev-parse", "--absolute-git-dir"), "hooks")
+	hook := filepath.Join(hooksDir, "pre-commit")
+	if err := os.WriteFile(hook, []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+		t.Fatalf("write pre-commit hook: %v", err)
+	}
+	writeFile(t, f.clone, "c.txt", "c\n")
+	gitCmd(t, f.clone, "add", "c.txt")
+
+	if err := CommitPaths(context.Background(), f.clone, "auto: c", []string{"c.txt"}); err == nil {
+		t.Fatal("CommitPaths succeeded, want the hook refusal")
+	}
+	if got := gitCmd(t, f.clone, "status", "--porcelain"); !strings.Contains(got, "c.txt") {
+		t.Errorf("refused path is no longer staged: %q", got)
 	}
 }

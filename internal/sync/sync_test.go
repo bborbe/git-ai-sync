@@ -297,3 +297,99 @@ func TestRemoteUnreachableKeepsLocalCommit(t *testing.T) {
 		t.Errorf("local commit subject = %q, want an auto commit", got)
 	}
 }
+
+// installRefusalHook writes a pre-commit hook that refuses the named path. It
+// decides from the index git presents to the hook: under --only that is the
+// named subset, not the whole index.
+func installRefusalHook(t *testing.T, repo, blocked string) {
+	t.Helper()
+	hooksDir := filepath.Join(runGit(t, repo, "rev-parse", "--absolute-git-dir"), "hooks")
+	script := "#!/bin/sh\nif git diff --cached --name-only | grep -qx '" + blocked +
+		"'; then\n  exit 1\nfi\nexit 0\n"
+	if err := os.WriteFile(filepath.Join(hooksDir, "pre-commit"), []byte(script), 0o755); err != nil {
+		t.Fatalf("write pre-commit hook: %v", err)
+	}
+}
+
+func TestHookRefusalCommitsTheRest(t *testing.T) {
+	f := newFixture(t)
+	installRefusalHook(t, f.clone, "blocked.txt")
+	writeFile(t, f.clone, "blocked.txt", "blocked\n")
+	writeFile(t, f.clone, "normal.txt", "normal\n")
+	remoteSHA := f.addRemoteCommit(t, "remote.txt", "remote\n")
+
+	result, err := Run(context.Background(), f.clone, Options{
+		Strategy:      git.StrategyMerge,
+		CommitPrefix:  "auto",
+		PullWhenClean: true,
+		Clock:         fakeClock(),
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	names := runGit(t, f.clone, "log", "--name-only", "HEAD")
+	if !strings.Contains(names, "normal.txt") {
+		t.Errorf("normal.txt was not committed: %q", names)
+	}
+	if strings.Contains(names, "blocked.txt") {
+		t.Errorf("blocked.txt was committed: %q", names)
+	}
+	if got := runGit(t, f.clone, "status", "--porcelain"); !strings.Contains(got, "blocked.txt") {
+		t.Errorf("blocked.txt is no longer staged: %q", got)
+	}
+	if !result.Committed {
+		t.Errorf("Committed = false, want true: %+v", result)
+	}
+	if len(result.Blocked) != 1 || result.Blocked[0] != "blocked.txt" {
+		t.Errorf("Blocked = %v, want [blocked.txt]", result.Blocked)
+	}
+	if result.CommitErr == nil {
+		t.Fatal("CommitErr is nil, want the refusal")
+	}
+	if !strings.Contains(result.CommitErr.Error(), "blocked.txt") {
+		t.Errorf("CommitErr = %q, want it to name blocked.txt", result.CommitErr)
+	}
+	// The autostash pull merged the remote commit, and the accepted commit left
+	// the machine.
+	if !isAncestor(t, f.clone, remoteSHA, "HEAD") {
+		t.Errorf("remote commit %s is not an ancestor of HEAD", remoteSHA)
+	}
+	if !result.Pushed {
+		t.Errorf("Pushed = false, want true: %+v", result)
+	}
+	remoteNames := runGit(t, f.remote, "log", "--name-only", "master")
+	if !strings.Contains(remoteNames, "normal.txt") {
+		t.Errorf("normal.txt is not on the remote: %q", remoteNames)
+	}
+	if got := runGit(t, f.clone, "status", "--porcelain"); !strings.Contains(got, "blocked.txt") {
+		t.Errorf("blocked.txt is no longer staged after the pull: %q", got)
+	}
+	if got := runGit(t, f.clone, "diff", "--cached", "--name-only"); !strings.Contains(got, "blocked.txt") {
+		t.Errorf("blocked.txt is no longer in the index after the pull: %q", got)
+	}
+}
+
+func TestHookRefusalAllPathsBlocked(t *testing.T) {
+	f := newFixture(t)
+	installRefusalHook(t, f.clone, "blocked.txt")
+	writeFile(t, f.clone, "blocked.txt", "blocked\n")
+
+	result, err := Run(context.Background(), f.clone, Options{
+		Strategy:      git.StrategyMerge,
+		CommitPrefix:  "auto",
+		PullWhenClean: true,
+		Clock:         fakeClock(),
+	})
+	if err != nil {
+		t.Fatalf("Run returned an error: %v", err)
+	}
+	if result.Committed {
+		t.Errorf("Committed = true, want false: %+v", result)
+	}
+	if result.CommitErr == nil {
+		t.Fatal("CommitErr is nil, want the refusal")
+	}
+	if len(result.Blocked) != 0 {
+		t.Errorf("Blocked = %v, want empty", result.Blocked)
+	}
+}
