@@ -583,11 +583,166 @@ func TestPreexistingUnmergedPathStopsCycle(t *testing.T) {
 	if strings.Contains(unmerged.Error(), "stash drop") {
 		t.Errorf("unmergedError mentions stash drop without an autostash: %v", unmerged)
 	}
+	// resolve stages the conflicted files itself, so the advice must not tell the
+	// operator to stage them first.
+	for _, phrase := range []string{"stage the", "stage them"} {
+		if strings.Contains(unmerged.Error(), phrase) {
+			t.Errorf("unmergedError instructs staging (%q): %v", phrase, unmerged)
+		}
+	}
 	if result.Committed {
 		t.Errorf("Committed = true, want false: %+v", result)
 	}
 	if after := runGit(t, f.clone, "rev-parse", "HEAD"); after != before {
 		t.Errorf("HEAD moved from %s to %s; a commit was created", before, after)
+	}
+}
+
+// TestRetainedAutostashRecoveryNamesStashDrop covers unmerged paths with a
+// retained autostash-shaped stash and no merge or rebase state.
+func TestRetainedAutostashRecoveryNamesStashDrop(t *testing.T) {
+	f := newFixture(t)
+	writeFile(t, f.clone, "note.md", "hello\nstashed\n")
+	runGit(t, f.clone, "stash", "push", "-m", "autostash")
+	writeFile(t, f.clone, "note.md", "hello\ncommitted\n")
+	runGit(t, f.clone, "add", "note.md")
+	runGit(t, f.clone, "commit", "-m", "conflicting change")
+
+	cmd := exec.Command("git", "stash", "apply")
+	cmd.Dir = f.clone
+	if out, err := cmd.CombinedOutput(); err == nil {
+		t.Fatalf("stash apply succeeded, want a conflict: %s", out)
+	}
+
+	if git.IsInMerge(f.clone) || git.IsInRebase(f.clone) {
+		t.Fatal("stash apply left a merge or rebase state")
+	}
+	autostash, probeErr := git.HasAutostash(context.Background(), f.clone)
+	if probeErr != nil {
+		t.Fatalf("HasAutostash: %v", probeErr)
+	}
+	if !autostash {
+		t.Fatal("the autostash-shaped stash was not detected")
+	}
+
+	err := unmergedError(context.Background(), f.clone)
+	if err == nil {
+		t.Fatal("unmergedError returned nil")
+	}
+	if !stderrors.Is(err, git.ErrConflict) {
+		t.Errorf("error does not wrap ErrConflict: %v", err)
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "note.md") {
+		t.Errorf("error does not name the unmerged path: %v", err)
+	}
+	if !strings.Contains(msg, "stash drop") {
+		t.Errorf("error does not mention stash drop for a retained autostash: %v", err)
+	}
+}
+
+// TestManualStashPopConflictNamesStashRecovery covers the state a manual
+// git stash pop conflict leaves: unmerged paths, a retained WIP stash, and no
+// MERGE_HEAD. git-ai-sync resolve refuses that state, so the error must say so
+// and must not present it as the recovery.
+func TestManualStashPopConflictNamesStashRecovery(t *testing.T) {
+	f := newFixture(t)
+	writeFile(t, f.clone, "note.md", "hello\nstashed\n")
+	runGit(t, f.clone, "stash", "push")
+	writeFile(t, f.clone, "note.md", "hello\ncommitted\n")
+	runGit(t, f.clone, "add", "note.md")
+	runGit(t, f.clone, "commit", "-m", "conflicting change")
+
+	cmd := exec.Command("git", "stash", "pop")
+	cmd.Dir = f.clone
+	if out, err := cmd.CombinedOutput(); err == nil {
+		t.Fatalf("stash pop succeeded, want a conflict: %s", out)
+	}
+
+	if git.IsInMerge(f.clone) || git.IsInRebase(f.clone) {
+		t.Fatal("a manual stash pop conflict left a merge or rebase state")
+	}
+	if got := runGit(t, f.clone, "stash", "list"); !strings.Contains(got, "WIP on") {
+		t.Fatalf("the stash was not retained: %q", got)
+	}
+
+	err := unmergedError(context.Background(), f.clone)
+	if err == nil {
+		t.Fatal("unmergedError returned nil")
+	}
+	if !stderrors.Is(err, git.ErrConflict) {
+		t.Errorf("error does not wrap ErrConflict: %v", err)
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "note.md") {
+		t.Errorf("error does not name the unmerged path: %v", err)
+	}
+	if !strings.Contains(msg, "does not apply") {
+		t.Errorf("error does not say git-ai-sync resolve does not apply: %v", err)
+	}
+	if strings.Contains(msg, "run git-ai-sync resolve") {
+		t.Errorf("error presents git-ai-sync resolve as the recovery: %v", err)
+	}
+	if !strings.Contains(msg, "stash@{0}") && !strings.Contains(msg, "WIP on") {
+		t.Errorf("error does not name the retained stash entry: %v", err)
+	}
+}
+
+// TestMixedBudgetExhaustionCapsBlockedMessage stages a mixed set large enough to
+// exhaust the attempt budget. Some units commit and many stay blocked, so the
+// error message must list at most maxBlockedInMessage paths plus a count while
+// Result.Blocked still holds every uncommitted path.
+func TestMixedBudgetExhaustionCapsBlockedMessage(t *testing.T) {
+	f := newFixture(t)
+	const okCount = 100
+	const refusedCount = 300
+	hooksDir := filepath.Join(runGit(t, f.clone, "rev-parse", "--absolute-git-dir"), "hooks")
+	script := "#!/bin/sh\nif git diff --cached --name-only | grep -q '^refuse'; then exit 1; fi\nexit 0\n"
+	if err := os.WriteFile(filepath.Join(hooksDir, "pre-commit"), []byte(script), 0o755); err != nil {
+		t.Fatalf("write pre-commit hook: %v", err)
+	}
+	// Paths sort with every ok-* unit before every refuse-* unit, so the accepted
+	// half commits before the budget runs out in the refused half.
+	for i := 0; i < okCount; i++ {
+		writeFile(t, f.clone, "ok-"+strconv.Itoa(i)+".txt", "x\n")
+	}
+	for i := 0; i < refusedCount; i++ {
+		writeFile(t, f.clone, "refuse-"+strconv.Itoa(i)+".txt", "x\n")
+	}
+
+	result, err := Run(context.Background(), f.clone, Options{
+		Strategy:      git.StrategyMerge,
+		CommitPrefix:  "auto",
+		PullWhenClean: true,
+		Clock:         fakeClock(),
+	})
+	if err != nil {
+		t.Fatalf("Run returned an error, want the refusal in CommitErr: %v", err)
+	}
+	if !result.Committed {
+		t.Errorf("Committed = false, want true: %+v", result)
+	}
+	if result.CommitErr == nil {
+		t.Fatal("CommitErr is nil, want the refusal")
+	}
+	if got, want := len(result.Blocked), refusedCount; got != want {
+		t.Errorf("Blocked has %d paths, want %d", got, want)
+	}
+	msg := result.CommitErr.Error()
+	if !strings.Contains(msg, " and ") || !strings.Contains(msg, " more") {
+		t.Errorf("CommitErr does not summarize the blocked paths: %v", msg)
+	}
+	const marker = "blocked paths: "
+	idx := strings.Index(msg, marker)
+	if idx < 0 {
+		t.Fatalf("CommitErr does not contain %q: %v", marker, msg)
+	}
+	listed := msg[idx+len(marker):]
+	if end := strings.Index(listed, " and "); end >= 0 {
+		listed = listed[:end]
+	}
+	if got := len(strings.Split(listed, ", ")); got != maxBlockedInMessage {
+		t.Errorf("CommitErr lists %d paths, want %d: %v", got, maxBlockedInMessage, msg)
 	}
 }
 

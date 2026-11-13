@@ -3,6 +3,7 @@ package sync
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/bborbe/errors"
@@ -25,8 +26,9 @@ type Result struct {
 	HadChanges bool
 	Committed  bool
 	CommitErr  error
-	// Blocked names the paths that could not be committed because the
-	// pre-commit hook refused them. They stay staged for the next cycle.
+	// Blocked names the paths that could not be committed in this cycle: refused
+	// by the pre-commit hook, or left untried because the attempt budget was
+	// exhausted or the cycle was cancelled. They stay staged for the next cycle.
 	Blocked   []string
 	Pulled    bool
 	Pushed    bool
@@ -119,22 +121,36 @@ func runDirty(ctx context.Context, repo string, opts Options) (Result, error) {
 	}, nil
 }
 
-// unmergedError reports a pre-existing unmerged state and how to clear it. A
-// retained autostash is recovered by dropping the stash; a merge or rebase
-// conflict is handed to git-ai-sync resolve, which stages the conflicted files
-// itself, so the advice must not tell the operator to stage them first.
+// unmergedError reports a pre-existing unmerged state and the recovery that
+// matches it. A merge or rebase conflict is handed to git-ai-sync resolve,
+// which stages the conflicted files itself, so the advice must not tell the
+// operator to stage them first. A retained autostash is recovered by dropping
+// the stash. A manual git stash pop conflict has neither state, so resolve
+// refuses it and the operator must drop the stash entry that produced it.
 func unmergedError(ctx context.Context, repo string) error {
 	files, err := git.ConflictedFiles(ctx, repo)
 	if err != nil {
 		return err
+	}
+	joined := strings.Join(files, ", ")
+	// Run returns before unmergedError whenever MERGE_HEAD or a rebase directory
+	// exists, so this branch is reachable only from a direct call. It is kept for
+	// the test that exercises the merge state directly, not as a production path.
+	if git.IsInMerge(repo) || git.IsInRebase(repo) {
+		return errors.Wrapf(
+			ctx,
+			git.ErrConflict,
+			"unmerged paths: %s; this is a merge or rebase conflict — run git-ai-sync resolve, which resolves and stages the conflicted files, continues the merge or rebase and pushes",
+			joined,
+		)
 	}
 	autostash, err := git.HasAutostash(ctx, repo)
 	if err != nil {
 		return errors.Wrapf(
 			ctx,
 			git.ErrConflict,
-			"unmerged paths: %s; could not check for a retained autostash: %v; this is a merge or rebase conflict — run git-ai-sync resolve, which resolves and stages the conflicted files, commits the merge and pushes",
-			strings.Join(files, ", "), err,
+			"unmerged paths: %s; could not check for a retained autostash: %v; inspect git stash list to choose the recovery",
+			joined, err,
 		)
 	}
 	if autostash {
@@ -142,14 +158,14 @@ func unmergedError(ctx context.Context, repo string) error {
 			ctx,
 			git.ErrConflict,
 			"unmerged paths: %s; the autostash is retained — resolve the conflict and run git stash drop",
-			strings.Join(files, ", "),
+			joined,
 		)
 	}
 	return errors.Wrapf(
 		ctx,
 		git.ErrConflict,
-		"unmerged paths: %s; this is a merge or rebase conflict — run git-ai-sync resolve, which resolves and stages the conflicted files, commits the merge and pushes",
-		strings.Join(files, ", "),
+		"unmerged paths: %s; this is a manual git stash pop conflict — resolve the conflict and drop the stash entry that produced it (stash@{0}, git stash drop); git-ai-sync resolve does not apply here because it refuses outside a merge or rebase state",
+		joined,
 	)
 }
 
@@ -174,7 +190,24 @@ func commitDirty(ctx context.Context, repo, message string) (bool, []string, err
 		return true, nil, nil
 	}
 	return true, blocked, errors.Wrapf(
-		ctx, commitErr, "blocked paths: %s", strings.Join(blocked, ", "),
+		ctx, commitErr, "blocked paths: %s", summarizeBlocked(blocked),
+	)
+}
+
+// maxBlockedInMessage caps how many blocked paths the error names. A budget-
+// exhausted cycle can report every pending unit, so the message summarizes the
+// remainder instead of printing hundreds of paths. Result.Blocked still holds
+// every path so the next cycle sees them staged.
+const maxBlockedInMessage = 10
+
+func summarizeBlocked(blocked []string) string {
+	if len(blocked) <= maxBlockedInMessage {
+		return strings.Join(blocked, ", ")
+	}
+	return fmt.Sprintf(
+		"%s and %d more",
+		strings.Join(blocked[:maxBlockedInMessage], ", "),
+		len(blocked)-maxBlockedInMessage,
 	)
 }
 

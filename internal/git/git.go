@@ -181,10 +181,12 @@ func HasUnmergedPaths(ctx context.Context, repo string) (bool, error) {
 }
 
 // HasAutostash reports whether a retained autostash entry exists. git pull
-// --autostash stores its entry with the message "autostash", which stash list
-// renders as "stash@{0}: On master: autostash"; a plain stash renders as
+// --autostash stores its entry with the subject "autostash", which stash list
+// renders as "stash@{0}: autostash"; a plain stash renders as
 // "stash@{0}: WIP on master: <sha> <subject>". Matching the last colon-separated
-// segment therefore finds the autostash and not the operator's own stashes.
+// segment therefore finds the autostash and not the operator's own stashes. An
+// operator stash created with -m autostash matches too, which is intended: both
+// are autostash-shaped and dropping is the right recovery for either.
 func HasAutostash(ctx context.Context, repo string) (bool, error) {
 	out, err := runGit(ctx, repo, "stash", "list")
 	if err != nil {
