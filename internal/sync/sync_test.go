@@ -2,6 +2,7 @@ package sync
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -64,6 +65,9 @@ func configure(t *testing.T, dir string) {
 	// effective (global) hooks path and reproduce the bug.
 	hooksPath := filepath.Join(runGit(t, dir, "rev-parse", "--absolute-git-dir"), "hooks")
 	runGit(t, dir, "config", "--local", "core.hooksPath", hooksPath)
+	// Pin core.quotePath so a non-ASCII path cannot be silently unquoted by a
+	// global false; StagedFiles must unquote via -z regardless.
+	runGit(t, dir, "config", "--local", "core.quotePath", "true")
 }
 
 func runGit(t *testing.T, dir string, args ...string) string {
@@ -366,6 +370,106 @@ func TestHookRefusalCommitsTheRest(t *testing.T) {
 	}
 	if got := runGit(t, f.clone, "diff", "--cached", "--name-only"); !strings.Contains(got, "blocked.txt") {
 		t.Errorf("blocked.txt is no longer in the index after the pull: %q", got)
+	}
+}
+
+func TestAutostashPopConflictStopsCycle(t *testing.T) {
+	f := newFixture(t)
+	installRefusalHook(t, f.clone, "blocked.txt")
+	// The accepted path keeps Blocked non-empty, which is what makes runDirty
+	// choose PullWithAutostash; with no accepted path it would pick plain Pull.
+	writeFile(t, f.clone, "blocked.txt", "local\n")
+	writeFile(t, f.clone, "normal.txt", "normal\n")
+	// The blocked path also changes upstream, so reapplying the autostash
+	// conflicts and leaves an unmerged entry with markers in the worktree.
+	f.addRemoteCommit(t, "blocked.txt", "remote\n")
+
+	result, err := Run(context.Background(), f.clone, Options{
+		Strategy:      git.StrategyMerge,
+		CommitPrefix:  "auto",
+		PullWhenClean: true,
+		Clock:         fakeClock(),
+	})
+	if err == nil {
+		t.Fatal("Run succeeded, want an autostash pop conflict")
+	}
+	if !errors.Is(err, git.ErrConflict) {
+		t.Errorf("error does not wrap ErrConflict: %v", err)
+	}
+	if len(result.Blocked) != 1 || result.Blocked[0] != "blocked.txt" {
+		t.Errorf("Blocked = %v, want [blocked.txt]", result.Blocked)
+	}
+	if got := runGit(t, f.clone, "log", "--all", "-S", "<<<<<<<"); got != "" {
+		t.Errorf("a commit contains conflict markers:\n%s", got)
+	}
+}
+
+func TestPreexistingUnmergedPathStopsCycle(t *testing.T) {
+	f := newFixture(t)
+	writeFile(t, f.clone, "note.md", "local\n")
+	runGit(t, f.clone, "add", "note.md")
+	runGit(t, f.clone, "commit", "-m", "local edit")
+	f.addRemoteCommit(t, "note.md", "remote\n")
+
+	// Leave the clone with an unmerged UU entry and a MERGE_HEAD in place.
+	cmd := exec.Command("git", "pull", "--no-rebase")
+	cmd.Dir = f.clone
+	_ = cmd.Run()
+
+	before := runGit(t, f.clone, "rev-parse", "HEAD")
+	result, err := Run(context.Background(), f.clone, Options{
+		Strategy:      git.StrategyMerge,
+		CommitPrefix:  "auto",
+		PullWhenClean: true,
+		Clock:         fakeClock(),
+	})
+	if err == nil {
+		t.Fatal("Run succeeded, want an unmerged-path error")
+	}
+	if !errors.Is(err, git.ErrConflict) {
+		t.Errorf("error does not wrap ErrConflict: %v", err)
+	}
+	if result.Committed {
+		t.Errorf("Committed = true, want false: %+v", result)
+	}
+	if after := runGit(t, f.clone, "rev-parse", "HEAD"); after != before {
+		t.Errorf("HEAD moved from %s to %s; a commit was created", before, after)
+	}
+}
+
+func TestGlobalCommitFailureDoesNotBisect(t *testing.T) {
+	f := newFixture(t)
+	counter := filepath.Join(t.TempDir(), "hook-count")
+	hooksDir := filepath.Join(runGit(t, f.clone, "rev-parse", "--absolute-git-dir"), "hooks")
+	script := "#!/bin/sh\necho x >> '" + counter + "'\nexit 1\n"
+	if err := os.WriteFile(filepath.Join(hooksDir, "pre-commit"), []byte(script), 0o755); err != nil {
+		t.Fatalf("write pre-commit hook: %v", err)
+	}
+	for i := 0; i < 20; i++ {
+		writeFile(t, f.clone, "unit-"+string(rune('a'+i))+".txt", "x\n")
+	}
+
+	result, err := Run(context.Background(), f.clone, Options{
+		Strategy:      git.StrategyMerge,
+		CommitPrefix:  "auto",
+		PullWhenClean: true,
+		Clock:         fakeClock(),
+	})
+	if err != nil {
+		t.Fatalf("Run returned an error, want the refusal in CommitErr: %v", err)
+	}
+	if result.CommitErr == nil {
+		t.Fatal("CommitErr is nil, want the original commit error")
+	}
+	if len(result.Blocked) != 0 {
+		t.Errorf("Blocked = %v, want empty for a global failure", result.Blocked)
+	}
+	data, readErr := os.ReadFile(counter)
+	if readErr != nil {
+		t.Fatalf("read hook counter: %v", readErr)
+	}
+	if got := strings.Count(string(data), "\n"); got > 6 {
+		t.Errorf("hook ran %d times, want at most 6 (full commit plus three probes)", got)
 	}
 }
 

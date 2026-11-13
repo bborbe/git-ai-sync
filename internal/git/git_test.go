@@ -60,6 +60,9 @@ func configure(t *testing.T, dir string) {
 	// clone and <bare> for a bare repository.
 	hooksPath := filepath.Join(gitCmd(t, dir, "rev-parse", "--absolute-git-dir"), "hooks")
 	gitCmd(t, dir, "config", "--local", "core.hooksPath", hooksPath)
+	// Pin core.quotePath so a non-ASCII path test cannot pass only because a
+	// global false disabled quoting; StagedFiles must unquote via -z regardless.
+	gitCmd(t, dir, "config", "--local", "core.quotePath", "true")
 }
 
 func gitCmd(t *testing.T, dir string, args ...string) string {
@@ -382,6 +385,67 @@ func TestStagedFiles(t *testing.T) {
 	}
 	if len(rename) != 2 || rename[0] != "old.txt" || rename[1] != "renamed.txt" {
 		t.Errorf("rename unit = %v, want [old.txt renamed.txt]", rename)
+	}
+}
+
+func TestStagedFilesNonASCIIPath(t *testing.T) {
+	f := newFixture(t)
+	writeFile(t, f.clone, "ärger.md", "x\n")
+	gitCmd(t, f.clone, "add", "ärger.md")
+
+	units, err := StagedFiles(context.Background(), f.clone)
+	if err != nil {
+		t.Fatalf("StagedFiles: %v", err)
+	}
+	if len(units) != 1 || len(units[0]) != 1 || units[0][0] != "ärger.md" {
+		t.Fatalf("StagedFiles = %v, want [[ärger.md]]", units)
+	}
+
+	// CommitPaths is the only consumer that hands the path back to git; a
+	// C-quoted literal would fail here as an unknown pathspec.
+	if err := CommitPaths(context.Background(), f.clone, "auto: umlaut", units[0]); err != nil {
+		t.Fatalf("CommitPaths: %v", err)
+	}
+	names := gitCmd(t, f.clone, "-c", "core.quotePath=false", "log", "-1", "--name-only", "--format=")
+	if !strings.Contains(names, "ärger.md") {
+		t.Errorf("commit does not contain ärger.md: %q", names)
+	}
+}
+
+func TestHasUnmergedPaths(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+
+	unmerged, err := HasUnmergedPaths(ctx, f.clone)
+	if err != nil {
+		t.Fatalf("HasUnmergedPaths: %v", err)
+	}
+	if unmerged {
+		t.Error("fresh clone reports unmerged paths")
+	}
+
+	writeFile(t, f.clone, "note.md", "local\n")
+	gitCmd(t, f.clone, "add", "note.md")
+	gitCmd(t, f.clone, "commit", "-m", "local edit")
+
+	other := filepath.Join(f.root, "other-unmerged")
+	gitCmd(t, f.root, "clone", f.remote, other)
+	configure(t, other)
+	writeFile(t, other, "note.md", "remote\n")
+	gitCmd(t, other, "add", "note.md")
+	gitCmd(t, other, "commit", "-m", "remote edit")
+	gitCmd(t, other, "push", "origin", "master")
+
+	cmd := exec.Command("git", "pull", "--no-rebase")
+	cmd.Dir = f.clone
+	_ = cmd.Run()
+
+	unmerged, err = HasUnmergedPaths(ctx, f.clone)
+	if err != nil {
+		t.Fatalf("HasUnmergedPaths: %v", err)
+	}
+	if !unmerged {
+		t.Error("conflicted clone reports no unmerged paths")
 	}
 }
 

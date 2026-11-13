@@ -67,6 +67,16 @@ func runClean(ctx context.Context, repo string, opts Options) (Result, error) {
 }
 
 func runDirty(ctx context.Context, repo string, opts Options) (Result, error) {
+	// Check before StageAll: a conflicted autostash leaves unmerged entries in
+	// the worktree, and git add . would sweep their conflict markers into the
+	// next commit. Stop and name the state instead.
+	unmerged, err := git.HasUnmergedPaths(ctx, repo)
+	if err != nil {
+		return Result{HadChanges: true}, err
+	}
+	if unmerged {
+		return Result{HadChanges: true}, unmergedError(ctx, repo)
+	}
 	if err := git.StageAll(ctx, repo); err != nil {
 		return Result{HadChanges: true}, err
 	}
@@ -103,6 +113,20 @@ func runDirty(ctx context.Context, repo string, opts Options) (Result, error) {
 	}, nil
 }
 
+// unmergedError reports a pre-existing unmerged state and how to clear it.
+func unmergedError(ctx context.Context, repo string) error {
+	files, err := git.ConflictedFiles(ctx, repo)
+	if err != nil {
+		return err
+	}
+	return errors.Wrapf(
+		ctx,
+		git.ErrConflict,
+		"unmerged paths: %s; a leftover autostash from a previous pull left conflict markers in the worktree — resolve the conflict and run git stash drop, because git-ai-sync resolve requires MERGE_HEAD or a rebase directory and cannot clear this state",
+		strings.Join(files, ", "),
+	)
+}
+
 // commitDirty commits the staged changes. When the single commit is refused, it
 // isolates the refused units and commits the rest, leaving the refused paths
 // staged. It returns whether anything committed, the paths that could not be
@@ -128,12 +152,52 @@ func commitDirty(ctx context.Context, repo, message string) (bool, []string, err
 	)
 }
 
-// commitUnits splits the pending units at unit boundaries, tries each half as
-// one commit, and recurses into a half that fails, treating a single failing
-// unit as blocked. It never splits a unit, so a rename's two paths always
-// travel in the same call. Units that commit are absent from the returned
-// blocked list; blocked paths stay staged.
+// commitUnits probes three spread units (first, middle, last) before bisecting.
+// When every probe fails the refusal is global — a hook rejecting everything,
+// index.lock, a signing failure — so it returns nothing committed and no
+// blocked paths, letting the caller report the original commit error without
+// bisecting hundreds of units. One surviving probe proves the set is a mix and
+// the rest is bisected. Three probes, not two: two blocked files cannot fail
+// all three, so a vault with exactly two refused paths is not misread as global.
+// It never splits a unit, so a rename's two paths always travel in the same call.
 func commitUnits(ctx context.Context, repo, message string, units [][]string) (int, []string) {
+	if len(units) == 0 {
+		return 0, nil
+	}
+	if ctx.Err() != nil {
+		return 0, flattenUnits(units)
+	}
+	if len(units) < 3 {
+		return commitBisect(ctx, repo, message, units)
+	}
+	probes := []int{0, len(units) / 2, len(units) - 1}
+	committed := 0
+	committedProbe := make(map[int]bool, len(probes))
+	for _, idx := range probes {
+		if err := git.CommitPaths(ctx, repo, message, units[idx]); err != nil {
+			continue
+		}
+		committed++
+		committedProbe[idx] = true
+	}
+	if committed == 0 {
+		return 0, nil
+	}
+	var remaining [][]string
+	for i, unit := range units {
+		if !committedProbe[i] {
+			remaining = append(remaining, unit)
+		}
+	}
+	restCommitted, restBlocked := commitBisect(ctx, repo, message, remaining)
+	return committed + restCommitted, restBlocked
+}
+
+// commitBisect splits the pending units at unit boundaries, tries each half as
+// one commit, and recurses into a half that fails, treating a single failing
+// unit as blocked. Units that commit are absent from the returned blocked list;
+// blocked paths stay staged.
+func commitBisect(ctx context.Context, repo, message string, units [][]string) (int, []string) {
 	if len(units) == 0 {
 		return 0, nil
 	}
@@ -158,7 +222,7 @@ func commitHalf(ctx context.Context, repo, message string, units [][]string) (in
 	if err := git.CommitPaths(ctx, repo, message, flattenUnits(units)); err == nil {
 		return len(units), nil
 	}
-	return commitUnits(ctx, repo, message, units)
+	return commitBisect(ctx, repo, message, units)
 }
 
 func flattenUnits(units [][]string) []string {
