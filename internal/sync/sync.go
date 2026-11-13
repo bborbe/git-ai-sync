@@ -119,16 +119,36 @@ func runDirty(ctx context.Context, repo string, opts Options) (Result, error) {
 	}, nil
 }
 
-// unmergedError reports a pre-existing unmerged state and how to clear it.
+// unmergedError reports a pre-existing unmerged state and how to clear it. A
+// retained autostash is recovered by dropping the stash; a merge or rebase
+// conflict is handed to git-ai-sync resolve, which stages the conflicted files
+// itself, so the advice must not tell the operator to stage them first.
 func unmergedError(ctx context.Context, repo string) error {
 	files, err := git.ConflictedFiles(ctx, repo)
 	if err != nil {
 		return err
 	}
+	autostash, err := git.HasAutostash(ctx, repo)
+	if err != nil {
+		return errors.Wrapf(
+			ctx,
+			git.ErrConflict,
+			"unmerged paths: %s; could not check for a retained autostash: %v; this is a merge or rebase conflict — run git-ai-sync resolve, which resolves and stages the conflicted files, commits the merge and pushes",
+			strings.Join(files, ", "), err,
+		)
+	}
+	if autostash {
+		return errors.Wrapf(
+			ctx,
+			git.ErrConflict,
+			"unmerged paths: %s; the autostash is retained — resolve the conflict and run git stash drop",
+			strings.Join(files, ", "),
+		)
+	}
 	return errors.Wrapf(
 		ctx,
 		git.ErrConflict,
-		"unmerged paths: %s; a leftover autostash from a previous pull left conflict markers in the worktree — resolve the conflict and run git stash drop, because git-ai-sync resolve requires MERGE_HEAD or a rebase directory and cannot clear this state",
+		"unmerged paths: %s; this is a merge or rebase conflict — run git-ai-sync resolve, which resolves and stages the conflicted files, commits the merge and pushes",
 		strings.Join(files, ", "),
 	)
 }
@@ -158,14 +178,14 @@ func commitDirty(ctx context.Context, repo, message string) (bool, []string, err
 	)
 }
 
-// commitUnits probes three spread units (first, middle, last) before bisecting.
-// When every probe fails the refusal is global — a hook rejecting everything,
-// index.lock, a signing failure — so it returns nothing committed and no
-// blocked paths, letting the caller report the original commit error without
-// bisecting hundreds of units. One surviving probe proves the set is a mix and
-// the rest is bisected. Three probes, not two: two blocked files cannot fail
-// all three, so a vault with exactly two refused paths is not misread as global.
-// It never splits a unit, so a rename's two paths always travel in the same call.
+// maxCommitAttempts bounds the subprocesses a single cycle spends isolating
+// refused paths. A realistic vault stays far under it; a hook that refuses
+// everything stops here instead of bisecting every path on every interval.
+const maxCommitAttempts = 256
+
+// commitUnits bisects the full unit set. It never splits a unit, so a rename's
+// two paths always travel in the same call, and no unit is skipped: a refused
+// path at any position is isolated and the rest commit.
 func commitUnits(ctx context.Context, repo, message string, units [][]string) (int, []string) {
 	if len(units) == 0 {
 		return 0, nil
@@ -173,62 +193,50 @@ func commitUnits(ctx context.Context, repo, message string, units [][]string) (i
 	if ctx.Err() != nil {
 		return 0, flattenUnits(units)
 	}
-	if len(units) < 3 {
-		return commitBisect(ctx, repo, message, units)
-	}
-	probes := []int{0, len(units) / 2, len(units) - 1}
-	committed := 0
-	committedProbe := make(map[int]bool, len(probes))
-	for _, idx := range probes {
-		if err := git.CommitPaths(ctx, repo, message, units[idx]); err != nil {
-			continue
-		}
-		committed++
-		committedProbe[idx] = true
-	}
-	if committed == 0 {
-		return 0, nil
-	}
-	var remaining [][]string
-	for i, unit := range units {
-		if !committedProbe[i] {
-			remaining = append(remaining, unit)
-		}
-	}
-	restCommitted, restBlocked := commitBisect(ctx, repo, message, remaining)
-	return committed + restCommitted, restBlocked
+	attempts := 0
+	return commitBisect(ctx, repo, message, units, &attempts)
 }
 
 // commitBisect splits the pending units at unit boundaries, tries each half as
 // one commit, and recurses into a half that fails, treating a single failing
 // unit as blocked. Units that commit are absent from the returned blocked list;
-// blocked paths stay staged.
-func commitBisect(ctx context.Context, repo, message string, units [][]string) (int, []string) {
+// blocked paths stay staged. When the attempt budget is exhausted it stops
+// recursing and reports every unit still pending in that subtree as blocked, so
+// an uncommitted path is never dropped from the blocked list.
+func commitBisect(ctx context.Context, repo, message string, units [][]string, attempts *int) (int, []string) {
 	if len(units) == 0 {
 		return 0, nil
 	}
 	if ctx.Err() != nil {
 		return 0, flattenUnits(units)
 	}
+	if *attempts >= maxCommitAttempts {
+		return 0, flattenUnits(units)
+	}
 	if len(units) == 1 {
+		*attempts++
 		if err := git.CommitPaths(ctx, repo, message, units[0]); err != nil {
 			return 0, units[0]
 		}
 		return 1, nil
 	}
 	mid := len(units) / 2
-	committedLeft, blockedLeft := commitHalf(ctx, repo, message, units[:mid])
-	committedRight, blockedRight := commitHalf(ctx, repo, message, units[mid:])
+	committedLeft, blockedLeft := commitHalf(ctx, repo, message, units[:mid], attempts)
+	committedRight, blockedRight := commitHalf(ctx, repo, message, units[mid:], attempts)
 	return committedLeft + committedRight, append(blockedLeft, blockedRight...)
 }
 
 // commitHalf tries a half's units as one commit and recurses into the half when
 // the commit fails, so a refused unit is isolated without splitting a unit.
-func commitHalf(ctx context.Context, repo, message string, units [][]string) (int, []string) {
+func commitHalf(ctx context.Context, repo, message string, units [][]string, attempts *int) (int, []string) {
+	if *attempts >= maxCommitAttempts {
+		return 0, flattenUnits(units)
+	}
+	*attempts++
 	if err := git.CommitPaths(ctx, repo, message, flattenUnits(units)); err == nil {
 		return len(units), nil
 	}
-	return commitBisect(ctx, repo, message, units)
+	return commitBisect(ctx, repo, message, units, attempts)
 }
 
 func flattenUnits(units [][]string) []string {

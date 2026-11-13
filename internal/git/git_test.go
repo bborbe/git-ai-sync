@@ -449,6 +449,46 @@ func TestHasUnmergedPaths(t *testing.T) {
 	}
 }
 
+func TestHasAutostash(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+
+	autostash, err := HasAutostash(ctx, f.clone)
+	if err != nil {
+		t.Fatalf("HasAutostash: %v", err)
+	}
+	if autostash {
+		t.Error("fresh clone reports an autostash")
+	}
+
+	// A plain stash has the subject "WIP on master: ...", so it must not match.
+	writeFile(t, f.clone, "note.md", "hello\nstashed\n")
+	gitCmd(t, f.clone, "stash")
+	autostash, err = HasAutostash(ctx, f.clone)
+	if err != nil {
+		t.Fatalf("HasAutostash after plain stash: %v", err)
+	}
+	if autostash {
+		t.Error("a plain stash was reported as an autostash")
+	}
+
+	// git pull --autostash creates the entry with git stash create and stores it
+	// with the subject "autostash"; a plain stash cannot produce that subject.
+	writeFile(t, f.clone, "note.md", "hello\nautostashed\n")
+	sha := gitCmd(t, f.clone, "stash", "create")
+	if sha == "" {
+		t.Fatal("git stash create returned no commit")
+	}
+	gitCmd(t, f.clone, "stash", "store", "-m", "autostash", sha)
+	autostash, err = HasAutostash(ctx, f.clone)
+	if err != nil {
+		t.Fatalf("HasAutostash after autostash: %v", err)
+	}
+	if !autostash {
+		t.Error("the stored autostash was not detected")
+	}
+}
+
 func TestCommitPaths(t *testing.T) {
 	f := newFixture(t)
 	writeFile(t, f.clone, "a.txt", "a\n")

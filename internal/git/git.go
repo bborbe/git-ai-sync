@@ -180,6 +180,24 @@ func HasUnmergedPaths(ctx context.Context, repo string) (bool, error) {
 	return len(files) > 0, nil
 }
 
+// HasAutostash reports whether a retained autostash entry exists. git pull
+// --autostash stores its entry with the message "autostash", which stash list
+// renders as "stash@{0}: On master: autostash"; a plain stash renders as
+// "stash@{0}: WIP on master: <sha> <subject>". Matching the last colon-separated
+// segment therefore finds the autostash and not the operator's own stashes.
+func HasAutostash(ctx context.Context, repo string) (bool, error) {
+	out, err := runGit(ctx, repo, "stash", "list")
+	if err != nil {
+		return false, errors.Wrapf(ctx, err, "list stashes")
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if idx := strings.LastIndex(line, ": "); idx >= 0 && line[idx+2:] == "autostash" {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // StagedFiles returns the staged changes as commit units
 // (git diff --cached --name-status -z). Each unit holds one path for an add,
 // modify, or delete, and both paths for a rename, so a partial commit cannot
