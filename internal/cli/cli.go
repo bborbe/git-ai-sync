@@ -268,12 +268,15 @@ func newWatchCommand(ctx context.Context) *cobra.Command {
 			}
 			logger := logging.New(os.Stderr, cfg.LogLevel)
 			return watch.Run(commandContext(ctx, cmd), watch.Options{
-				Path:         pathArg(args),
-				Interval:     cfg.Interval,
-				MaxWait:      cfg.MaxWait,
-				CommitPrefix: cfg.CommitPrefix,
-				Strategy:     git.Strategy(cfg.Strategy),
-				Logger:       logger,
+				Path:             pathArg(args),
+				Interval:         cfg.Interval,
+				MaxWait:          cfg.MaxWait,
+				CommitPrefix:     cfg.CommitPrefix,
+				Strategy:         git.Strategy(cfg.Strategy),
+				Logger:           logger,
+				ConflictResolver: sync.ResolveConflicts,
+				// The CLI has no attention notifier.
+				ConflictAlert: nil,
 			})
 		},
 	}

@@ -17,6 +17,7 @@ import (
 	"github.com/bborbe/git-ai-sync/internal/clock"
 	"github.com/bborbe/git-ai-sync/internal/config"
 	"github.com/bborbe/git-ai-sync/internal/logging"
+	"github.com/bborbe/git-ai-sync/internal/watch"
 )
 
 const supervisePushTimeout = 20 * time.Second
@@ -287,6 +288,41 @@ func TestFailingVaultDoesNotStopOthers(t *testing.T) {
 
 	cancel()
 	requireRunReturns(t, done)
+}
+
+// TestRunWiresConflictResolver proves the production supervisor path cannot
+// silently lose the conflict resolver or its alert.
+func TestRunWiresConflictResolver(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	captured := make(chan watch.Options, 1)
+	err := Run(ctx, Options{
+		Config: config.FileConfig{
+			Vaults:       []string{"/tmp/vault"},
+			Interval:     time.Second,
+			MaxWait:      time.Minute,
+			CommitPrefix: "auto",
+			Strategy:     "merge",
+		},
+		WatchRun: func(_ context.Context, opts watch.Options) error {
+			captured <- opts
+			cancel()
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	select {
+	case opts := <-captured:
+		if opts.ConflictResolver == nil {
+			t.Error("ConflictResolver is nil")
+		}
+		if opts.ConflictAlert == nil {
+			t.Error("ConflictAlert is nil")
+		}
+	default:
+		t.Fatal("WatchRun was never called")
+	}
 }
 
 func TestLabel(t *testing.T) {

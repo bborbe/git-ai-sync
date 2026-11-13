@@ -6,7 +6,10 @@ import (
 	stderrors "errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
+
+	"github.com/bborbe/errors"
 
 	"github.com/bborbe/git-ai-sync/internal/changetracker"
 	"github.com/bborbe/git-ai-sync/internal/clock"
@@ -29,19 +32,38 @@ type Runner func(ctx context.Context, repo string, opts sync.Options) (sync.Resu
 // SleepFunc waits for d or until ctx is cancelled.
 type SleepFunc func(ctx context.Context, d time.Duration) error
 
+const (
+	// MaxConflictAttempts bounds how many times the loop tries to resolve one
+	// conflicted pull before it alerts.
+	MaxConflictAttempts = 3
+	// conflictRetryDelay is the pause between resolution attempts.
+	conflictRetryDelay = time.Minute
+	// defaultConflictAttemptTimeout bounds one resolver call so a hung model
+	// consumes an attempt instead of blocking the loop forever.
+	defaultConflictAttemptTimeout = 2 * time.Minute
+)
+
 // Options configures the watch command. Clock, Sleep, Tracker and Runner default
 // to production implementations when nil; tests inject fakes.
+//
+// ConflictResolver attempts to resolve a conflicted pull; nil keeps the loop's
+// original behaviour of returning the conflict error. ConflictAlert is called
+// once per unresolved conflict cycle; nil disables the alert. ConflictAttemptTimeout
+// bounds one resolver call and defaults to defaultConflictAttemptTimeout when zero.
 type Options struct {
-	Path         string
-	Interval     time.Duration
-	MaxWait      time.Duration
-	CommitPrefix string
-	Strategy     git.Strategy
-	Clock        clock.Clock
-	Logger       *slog.Logger
-	Sleep        SleepFunc
-	Tracker      Tracker
-	Runner       Runner
+	Path                   string
+	Interval               time.Duration
+	MaxWait                time.Duration
+	CommitPrefix           string
+	Strategy               git.Strategy
+	Clock                  clock.Clock
+	Logger                 *slog.Logger
+	Sleep                  SleepFunc
+	Tracker                Tracker
+	Runner                 Runner
+	ConflictResolver       func(ctx context.Context, repo string) error
+	ConflictAlert          func(ctx context.Context, repo string, cause error)
+	ConflictAttemptTimeout time.Duration
 }
 
 // Run validates the repository, acquires the instance lock, starts the change
@@ -100,8 +122,16 @@ func Run(ctx context.Context, opts Options) error {
 	if runner == nil {
 		runner = sync.Run
 	}
+	attemptTimeout := opts.ConflictAttemptTimeout
+	if attemptTimeout == 0 {
+		attemptTimeout = defaultConflictAttemptTimeout
+	}
 
-	return loop(ctx, repo, opts.Interval, opts.MaxWait, opts.CommitPrefix, opts.Strategy, clk, tracker, runner, sleep, logger)
+	return loop(
+		ctx, repo, opts.Interval, opts.MaxWait, opts.CommitPrefix, opts.Strategy,
+		clk, tracker, runner, sleep, opts.ConflictResolver, opts.ConflictAlert,
+		attemptTimeout, logger,
+	)
 }
 
 func loop(
@@ -115,9 +145,16 @@ func loop(
 	tracker Tracker,
 	runner Runner,
 	sleep SleepFunc,
+	resolve func(ctx context.Context, repo string) error,
+	alert func(ctx context.Context, repo string, cause error),
+	attemptTimeout time.Duration,
 	logger *slog.Logger,
 ) error {
 	windowTracker := quietwindow.NewTracker(clk.Now())
+	// alerted dedups only this loop's own card. The supervisor's stall path
+	// dedups separately on deps.tracker.outstanding, and runnerFor still counts
+	// each ErrConflict cycle as a stall failure.
+	alerted := false
 	iteration := 0
 	for {
 		select {
@@ -159,7 +196,56 @@ func loop(
 		if err != nil {
 			if stderrors.Is(err, git.ErrConflict) {
 				logger.Error(fmt.Sprintf("[%d] conflict: %v", iteration, err))
-				return err
+				if resolve == nil {
+					return err
+				}
+				resolved := false
+				var lastErr error
+				for attempt := 1; attempt <= MaxConflictAttempts; attempt++ {
+					select {
+					case <-ctx.Done():
+						return nil
+					default:
+					}
+					attemptCtx, cancel := context.WithTimeout(ctx, attemptTimeout)
+					resolveErr := resolve(attemptCtx, repo)
+					cancel()
+					if resolveErr == nil {
+						logger.Info(fmt.Sprintf("[%d] conflict resolved", iteration))
+						windowTracker.RecordSuccess(clk.Now())
+						resolved = true
+						break
+					}
+					lastErr = resolveErr
+					logger.Error(fmt.Sprintf(
+						"[%d] conflict resolution attempt %d/%d failed: %v",
+						iteration, attempt, MaxConflictAttempts, resolveErr,
+					))
+					if attempt == MaxConflictAttempts {
+						break
+					}
+					if sleepErr := sleep(ctx, conflictRetryDelay); sleepErr != nil {
+						if ctx.Err() != nil {
+							return nil
+						}
+						return errors.Wrapf(ctx, sleepErr, "sleep before conflict retry")
+					}
+				}
+				if resolved {
+					alerted = false
+					continue
+				}
+				files, listErr := git.ConflictedFiles(ctx, repo)
+				if listErr != nil {
+					logger.Warn(fmt.Sprintf("[%d] list conflicted files failed: %v", iteration, listErr))
+				} else if len(files) > 0 {
+					logger.Error(fmt.Sprintf("[%d] unresolved conflicted files: %s", iteration, strings.Join(files, ", ")))
+				}
+				if alert != nil && !alerted {
+					alert(ctx, repo, lastErr)
+					alerted = true
+				}
+				continue
 			}
 			logger.Error(fmt.Sprintf("[%d] sync failed: %v", iteration, err))
 			continue

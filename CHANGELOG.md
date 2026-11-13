@@ -8,6 +8,10 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 * MINOR version when you add functionality in a backwards-compatible manner, and
 * PATCH version when you make backwards-compatible bug fixes.
 
+## Unreleased
+
+- fix: resolve a merge conflict inside the watch loop instead of stopping, so one conflicted vault no longer halts syncing while every other vault stays healthy
+
 ## v0.19.3
 
 - fix: restore the Homebrew cask's quarantine strip so `brew install --cask git-ai-sync` yields a binary that runs — without it macOS records an execution verdict against the Caskroom path and the installed binary hangs in `_dyld_start`
