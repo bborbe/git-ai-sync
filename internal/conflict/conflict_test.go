@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -324,6 +325,129 @@ func TestResolveMarkerFlaggedFilesResolvesAndRestages(t *testing.T) {
 	if staged := stagedFiles(t, f.repo); !strings.Contains(staged, "note.txt") {
 		t.Errorf("staged files = %q, want note.txt", staged)
 	}
+}
+
+// hookFencePattern and hookMarkerPattern reproduce the operator's pre-commit
+// hook rules verbatim. They are the oracle HasConflictMarkers must agree with.
+var (
+	hookFencePattern  = regexp.MustCompile("^[[:space:]]*(```|~~~)")
+	hookMarkerPattern = regexp.MustCompile("^(<<<<<<< |>>>>>>> )")
+)
+
+func hookOracle(content string) bool {
+	fence := false
+	found := false
+	for _, line := range strings.Split(content, "\n") {
+		if hookFencePattern.MatchString(line) {
+			fence = !fence
+			continue
+		}
+		if !fence && hookMarkerPattern.MatchString(line) {
+			found = true
+		}
+	}
+	return found
+}
+
+func TestHasConflictMarkersAgreesWithPreCommitHook(t *testing.T) {
+	cases := []struct {
+		name    string
+		content string
+	}{
+		{"bare marker", "before\n<<<<<<< HEAD\nafter\n"},
+		{"marker inside backtick fence", "before\n```\n<<<<<<< HEAD\n```\nafter\n"},
+		{"marker inside tilde fence", "before\n~~~\n<<<<<<< HEAD\n~~~\nafter\n"},
+		{"closing marker at column zero", "before\n>>>>>>> other\nafter\n"},
+		{"indented marker does not match", "before\n  <<<<<<< HEAD\nafter\n"},
+		{"marker mid-line does not match", "before\ntext <<<<<<< HEAD\nafter\n"},
+		{"marker after fence closes", "```\nquoted\n```\n<<<<<<< HEAD\n"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := HasConflictMarkers([]byte(tc.content))
+			want := hookOracle(tc.content)
+			if got != want {
+				t.Errorf("HasConflictMarkers(%q) = %v, hook oracle = %v", tc.content, got, want)
+			}
+		})
+	}
+}
+
+// TestResolveFileRefusesUnparseableMarker covers a marker the block regex cannot
+// parse: the file must not be staged unchanged and the model must never run.
+func TestResolveFileRefusesUnparseableMarker(t *testing.T) {
+	f := newFixture(t)
+	const content = "<<<<<<< HEAD\nfrom-ours\n"
+	writeFile(t, f.repo, "note.txt", content)
+
+	logPath := filepath.Join(t.TempDir(), "invocations.log")
+	t.Setenv("CLAUDE_STUB_LOG", logPath)
+	writeStub(t, "printf invoked >> \"$CLAUDE_STUB_LOG\"\n")
+
+	err := ResolveFile(context.Background(), f.repo, "note.txt")
+	if err == nil {
+		t.Fatal("ResolveFile succeeded, want a refusal")
+	}
+	if !strings.Contains(err.Error(), "conflict markers") {
+		t.Errorf("error = %v, want it to name conflict markers", err)
+	}
+	if got := string(readFile(t, f.repo, "note.txt")); got != content {
+		t.Errorf("file changed to %q, want %q", got, content)
+	}
+	if staged := stagedFiles(t, f.repo); strings.Contains(staged, "note.txt") {
+		t.Errorf("note.txt was staged: %q", staged)
+	}
+	if data, readErr := os.ReadFile(logPath); readErr == nil && len(data) > 0 {
+		t.Errorf("model was invoked: %s", data)
+	}
+}
+
+// TestResolveFileFencedMarkerAcceptedOutsideRefused proves a quoted marker inside
+// a fence is accepted and staged, while the same marker outside a fence is
+// refused.
+func TestResolveFileFencedMarkerAcceptedOutsideRefused(t *testing.T) {
+	t.Run("inside fence accepted", func(t *testing.T) {
+		f := newFixture(t)
+		writeFile(t, f.repo, "note.txt", markerContent)
+		writeResponse(t, envelope{
+			Type:    "result",
+			IsError: false,
+			Subtype: "success",
+			Result:  "before\n```\n<<<<<<< HEAD\n>>>>>>> other\n```\nafter\n",
+		})
+		writeStub(t, stubResponse())
+
+		if err := ResolveFile(context.Background(), f.repo, "note.txt"); err != nil {
+			t.Fatalf("ResolveFile: %v", err)
+		}
+		got := string(readFile(t, f.repo, "note.txt"))
+		if !strings.Contains(got, "```") {
+			t.Errorf("resolved file lost the quoted fence: %q", got)
+		}
+		if staged := stagedFiles(t, f.repo); !strings.Contains(staged, "note.txt") {
+			t.Errorf("staged files = %q, want note.txt", staged)
+		}
+	})
+
+	t.Run("outside fence refused", func(t *testing.T) {
+		f := newFixture(t)
+		writeFile(t, f.repo, "note.txt", markerContent)
+		writeResponse(t, envelope{
+			Type:    "result",
+			IsError: false,
+			Subtype: "success",
+			Result:  "before\n<<<<<<< HEAD\n>>>>>>> other\nafter\n",
+		})
+		writeStub(t, stubResponse())
+
+		err := ResolveFile(context.Background(), f.repo, "note.txt")
+		if err == nil {
+			t.Fatal("ResolveFile succeeded, want a refusal")
+		}
+		if got := string(readFile(t, f.repo, "note.txt")); got != markerContent {
+			t.Errorf("file changed to %q", got)
+		}
+	})
 }
 
 func TestParseConflictMarkers(t *testing.T) {

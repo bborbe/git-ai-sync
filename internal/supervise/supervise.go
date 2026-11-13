@@ -3,6 +3,7 @@ package supervise
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"path/filepath"
 	"strings"
@@ -81,15 +82,31 @@ func runVault(ctx context.Context, opts Options, vault string, deps runnerDeps) 
 				}
 			}()
 			err := opts.WatchRun(ctx, watch.Options{
-				Path:         vault,
-				Interval:     opts.Config.Interval,
-				MaxWait:      opts.Config.MaxWait,
-				CommitPrefix: opts.Config.CommitPrefix,
-				Strategy:     git.Strategy(opts.Config.Strategy),
-				Clock:        opts.Clock,
-				Logger:       opts.Logger,
-				Sleep:        opts.Sleep,
-				Runner:       opts.runnerFor(opts.Logger, deps),
+				Path:             vault,
+				Interval:         opts.Config.Interval,
+				MaxWait:          opts.Config.MaxWait,
+				CommitPrefix:     opts.Config.CommitPrefix,
+				Strategy:         git.Strategy(opts.Config.Strategy),
+				Clock:            opts.Clock,
+				Logger:           opts.Logger,
+				Sleep:            opts.Sleep,
+				Runner:           opts.runnerFor(opts.Logger, deps),
+				ConflictResolver: sync.ResolveConflicts,
+				// The card reuses the stall dedup key git-ai-sync-<label>-stalled,
+				// keyed on the repository the runner reports, matching runnerFor's
+				// stall tracker. The vault is display text only.
+				ConflictAlert: func(ctx context.Context, repo string, cause error) {
+					if !deps.notifier.enabled() {
+						return
+					}
+					lastError := fmt.Sprintf(
+						"conflict resolution failed after %d attempts: %v",
+						watch.MaxConflictAttempts, cause,
+					)
+					if itemID, ok := deps.notifier.post(ctx, Label(repo), vault, 1, opts.Clock.Now(), lastError); ok {
+						deps.tracker.setOutstanding(repo, itemID)
+					}
+				},
 			})
 			if ctx.Err() != nil {
 				return

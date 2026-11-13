@@ -4,6 +4,8 @@ package sync
 import (
 	"context"
 
+	"github.com/bborbe/errors"
+
 	"github.com/bborbe/git-ai-sync/internal/clock"
 	"github.com/bborbe/git-ai-sync/internal/git"
 )
@@ -29,6 +31,12 @@ type Result struct {
 
 // Run performs one sync cycle.
 func Run(ctx context.Context, repo string, opts Options) (Result, error) {
+	// A repository that is still mid-merge or mid-rebase is handed back to the
+	// conflict resolver. Staging here would commit conflict markers, and a repo
+	// whose conflicts are all resolved and staged still needs its continue step.
+	if git.IsInMerge(repo) || git.IsInRebase(repo) {
+		return Result{}, errors.Wrapf(ctx, git.ErrConflict, "repository is still in a conflict state")
+	}
 	dirty, err := git.HasChanges(ctx, repo)
 	if err != nil {
 		return Result{}, err

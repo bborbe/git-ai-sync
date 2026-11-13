@@ -23,6 +23,12 @@ import (
 // and staged it unchanged, committing conflict markers back into the repository.
 var conflictMarkerPattern = regexp.MustCompile(`(?s)<{7} [^\n]*\n(.*?)={7}\n(.*?)>{7} [^\n]*\n`)
 
+// fenceLinePattern matches a line that opens or closes a fenced code block. It
+// reproduces the operator's pre-commit hook rule: optional leading whitespace
+// then three backticks or three tildes; both fence characters toggle the same
+// boolean.
+var fenceLinePattern = regexp.MustCompile("^[[:space:]]*(```|~~~)")
+
 // conflictBlock is the ours/theirs pair parsed out of one conflict block.
 type conflictBlock struct {
 	ours   string
@@ -50,6 +56,9 @@ func ResolveFile(ctx context.Context, repo string, path string) error {
 	}
 
 	if len(parseConflictMarkers(string(original))) == 0 {
+		if HasConflictMarkers(original) {
+			return errors.Errorf(ctx, "file %s still contains conflict markers; refusing to stage", path)
+		}
 		if err := git.StageFile(ctx, repo, path); err != nil {
 			return errors.Wrapf(ctx, err, "stage unchanged file %s", path)
 		}
@@ -117,7 +126,7 @@ func resolveContent(ctx context.Context, path string, original []byte) ([]byte, 
 	}
 
 	resolved := stripCodeFence(strings.TrimSpace(env.Result))
-	if len(parseConflictMarkers(resolved)) > 0 {
+	if HasConflictMarkers([]byte(resolved)) {
 		return nil, errors.Errorf(ctx, "resolution of %s still contains conflict markers; refusing to write", path)
 	}
 	if strings.HasSuffix(path, ".md") && bytes.HasPrefix(original, []byte("---")) && !strings.HasPrefix(resolved, "---") {
@@ -175,6 +184,27 @@ func stripCodeFence(s string) string {
 		lines = lines[:len(lines)-1]
 	}
 	return strings.Join(lines, "\n")
+}
+
+// HasConflictMarkers reports whether content has a line beginning with
+// "<<<<<<< " or ">>>>>>> " outside a fenced code block. It mirrors the
+// operator's pre-commit hook exactly, so a vault page that legitimately quotes
+// a marker inside a fence is not refused.
+func HasConflictMarkers(content []byte) bool {
+	fence := false
+	for _, line := range strings.Split(string(content), "\n") {
+		if fenceLinePattern.MatchString(line) {
+			fence = !fence
+			continue
+		}
+		if fence {
+			continue
+		}
+		if strings.HasPrefix(line, "<<<<<<< ") || strings.HasPrefix(line, ">>>>>>> ") {
+			return true
+		}
+	}
+	return false
 }
 
 // parseConflictMarkers returns every conflict block in content.
