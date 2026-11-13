@@ -249,19 +249,32 @@ func TestResolveRefusesCleanRepo(t *testing.T) {
 	}
 }
 
-func TestResolveRefusesNoConflictedFiles(t *testing.T) {
+// TestResolveCompletesFullyStagedMerge proves the command is idempotent: a
+// repository whose conflicts are resolved and staged but whose merge was never
+// concluded is completed on the next run, without invoking Claude.
+func TestResolveCompletesFullyStagedMerge(t *testing.T) {
 	f := newResolveFixture(t)
-	head := resolveGit(t, f.clone, "rev-parse", "HEAD")
-	if err := os.WriteFile(filepath.Join(f.clone, ".git", "MERGE_HEAD"), []byte(head+"\n"), 0o644); err != nil {
-		t.Fatalf("write MERGE_HEAD: %v", err)
+	f.createConflict(t, "--no-rebase")
+	resolveWriteFile(t, f.clone, "note.txt", "from-ours\nfrom-theirs\n")
+	resolveGit(t, f.clone, "add", "note.txt")
+	if files, err := git.ConflictedFiles(context.Background(), f.clone); err != nil {
+		t.Fatalf("list conflicted files: %v", err)
+	} else if len(files) != 0 {
+		t.Fatalf("conflicted files = %v, want none after staging", files)
 	}
 
 	output, err := runResolve(t, f.clone)
-	if err == nil {
-		t.Fatalf("resolve succeeded with no conflicted files\n%s", output)
+	if err != nil {
+		t.Fatalf("resolve: %v\n%s", err, output)
 	}
-	if !strings.Contains(strings.ToLower(err.Error()), "no conflicted") {
-		t.Errorf("error = %q, want it to name the missing conflicts", err)
+	if _, statErr := os.Stat(filepath.Join(f.clone, ".git", "MERGE_HEAD")); !os.IsNotExist(statErr) {
+		t.Errorf(".git/MERGE_HEAD still exists after resolve (err=%v)", statErr)
+	}
+	if got := resolveGit(t, f.clone, "status", "--porcelain"); got != "" {
+		t.Errorf("worktree not clean: %q", got)
+	}
+	if got, want := resolveGit(t, f.clone, "rev-parse", "HEAD"), resolveGit(t, f.remote, "rev-parse", "master"); got != want {
+		t.Errorf("clone HEAD = %s, remote master = %s", got, want)
 	}
 }
 

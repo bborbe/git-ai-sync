@@ -387,26 +387,28 @@ func newResolveCommand(ctx context.Context) *cobra.Command {
 			if err != nil {
 				return errors.Wrapf(runCtx, err, "list conflicted files")
 			}
-			if len(files) == 0 {
+			if len(files) == 0 && !inMerge && !inRebase {
 				state := "merge"
 				if inRebase {
 					state = "rebase"
 				}
 				return errors.Errorf(runCtx, "no conflicted files found in the %s state", state)
 			}
-			logger.Info(fmt.Sprintf("found %d conflicted file(s): %s", len(files), strings.Join(files, ", ")))
+			if len(files) > 0 {
+				logger.Info(fmt.Sprintf("found %d conflicted file(s): %s", len(files), strings.Join(files, ", ")))
 
-			failed := make([]string, 0)
-			for _, path := range files {
-				if err := conflict.ResolveFile(runCtx, repo, path); err != nil {
-					logger.Error(fmt.Sprintf("failed to resolve %s: %v", path, err))
-					failed = append(failed, path)
-					continue
+				failed := make([]string, 0)
+				for _, path := range files {
+					if err := conflict.ResolveFile(runCtx, repo, path); err != nil {
+						logger.Error(fmt.Sprintf("failed to resolve %s: %v", path, err))
+						failed = append(failed, path)
+						continue
+					}
+					logger.Info(fmt.Sprintf("resolved and staged %s", path))
 				}
-				logger.Info(fmt.Sprintf("resolved and staged %s", path))
-			}
-			if len(failed) > 0 {
-				return errors.Errorf(runCtx, "failed to resolve %d file(s): %s", len(failed), strings.Join(failed, ", "))
+				if len(failed) > 0 {
+					return errors.Errorf(runCtx, "failed to resolve %d file(s): %s", len(failed), strings.Join(failed, ", "))
+				}
 			}
 
 			if inRebase {

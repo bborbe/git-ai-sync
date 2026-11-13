@@ -472,17 +472,21 @@ func TestLoopConflictAlertAfterMaxAttempts(t *testing.T) {
 	resolverCalls := 0
 	resolve := func(context.Context, string) error {
 		resolverCalls++
+		// The alert no longer cancels the loop: let the second cycle run with the
+		// reduced cap, then stop after the fourth call.
+		if resolverCalls == MaxConflictAttempts+1 {
+			h.cancel()
+		}
 		return stderrors.New("resolve failed")
 	}
 	alerts := 0
 	alert := func(context.Context, string, error) {
 		alerts++
-		h.cancel()
 	}
 	h.runLoopWith(t, time.Second, time.Minute, resolve, alert, defaultConflictAttemptTimeout)
 
-	if resolverCalls != MaxConflictAttempts {
-		t.Errorf("resolver invoked %d times, want %d", resolverCalls, MaxConflictAttempts)
+	if resolverCalls != MaxConflictAttempts+1 {
+		t.Errorf("resolver invoked %d times, want %d", resolverCalls, MaxConflictAttempts+1)
 	}
 	intervalCount, delayCount := 0, 0
 	for _, d := range recorder.durations {
@@ -493,8 +497,8 @@ func TestLoopConflictAlertAfterMaxAttempts(t *testing.T) {
 			delayCount++
 		}
 	}
-	if intervalCount != 1 || delayCount != 2 {
-		t.Errorf("durations = %v, want 1 interval and 2 conflictRetryDelay", recorder.durations)
+	if intervalCount != 2 || delayCount != 2 {
+		t.Errorf("durations = %v, want 2 intervals and 2 conflictRetryDelay", recorder.durations)
 	}
 	if alerts != 1 {
 		t.Errorf("ConflictAlert called %d times, want 1", alerts)

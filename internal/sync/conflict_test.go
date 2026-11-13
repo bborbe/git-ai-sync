@@ -124,6 +124,34 @@ func TestResolveConflictsResolvesRebaseAndPushes(t *testing.T) {
 	assertCleanAndPushed(t, f)
 }
 
+// TestResolveConflictsCompletesFullyStagedMerge proves the resolver is
+// idempotent: a repo whose conflicts are resolved and staged but whose merge was
+// never concluded is completed on the next attempt, without calling Claude.
+func TestResolveConflictsCompletesFullyStagedMerge(t *testing.T) {
+	f := newFixture(t)
+	seedConflict(t, f, "pull", "--no-rebase")
+	if !git.IsInMerge(f.clone) {
+		t.Fatal("fixture is not in a merge state")
+	}
+	writeFile(t, f.clone, "note.md", "hello\nlocal edit\nremote edit\n")
+	runGit(t, f.clone, "add", "note.md")
+	files, err := git.ConflictedFiles(context.Background(), f.clone)
+	if err != nil {
+		t.Fatalf("list conflicted files: %v", err)
+	}
+	if len(files) != 0 {
+		t.Fatalf("conflicted files = %v, want none after staging", files)
+	}
+
+	if err := ResolveConflicts(context.Background(), f.clone); err != nil {
+		t.Fatalf("ResolveConflicts: %v", err)
+	}
+	assertCleanAndPushed(t, f)
+	if got := runGit(t, f.remote, "show", "master:note.md"); !strings.Contains(got, "remote edit") {
+		t.Errorf("remote note.md = %q, want the staged content", got)
+	}
+}
+
 func TestResolveConflictsNoConflictedFiles(t *testing.T) {
 	f := newFixture(t)
 	if err := ResolveConflicts(context.Background(), f.clone); err == nil {

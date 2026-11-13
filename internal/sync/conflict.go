@@ -17,12 +17,14 @@ func ResolveConflicts(ctx context.Context, repo string) error {
 	if err != nil {
 		return errors.Wrapf(ctx, err, "list conflicted files")
 	}
-	if len(files) == 0 {
+	if len(files) == 0 && !git.IsInMerge(repo) && !git.IsInRebase(repo) {
 		return errors.Errorf(ctx, "no conflicted files found in %s", repo)
 	}
 
-	if err := conflict.ResolveMarkerFlaggedFiles(ctx, repo, files); err != nil {
-		return errors.Wrapf(ctx, err, "resolve conflicted files")
+	if len(files) > 0 {
+		if err := conflict.ResolveMarkerFlaggedFiles(ctx, repo, files); err != nil {
+			return errors.Wrapf(ctx, err, "resolve conflicted files")
+		}
 	}
 
 	if git.IsInRebase(repo) {

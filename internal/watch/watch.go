@@ -201,7 +201,13 @@ func loop(
 				}
 				resolved := false
 				var lastErr error
-				for attempt := 1; attempt <= MaxConflictAttempts; attempt++ {
+				// Once an alert has fired, retry once per cycle instead of the full
+				// cap, so a persistent conflict stops burning model time.
+				maxAttempts := MaxConflictAttempts
+				if alerted {
+					maxAttempts = 1
+				}
+				for attempt := 1; attempt <= maxAttempts; attempt++ {
 					select {
 					case <-ctx.Done():
 						return nil
@@ -219,9 +225,9 @@ func loop(
 					lastErr = resolveErr
 					logger.Error(fmt.Sprintf(
 						"[%d] conflict resolution attempt %d/%d failed: %v",
-						iteration, attempt, MaxConflictAttempts, resolveErr,
+						iteration, attempt, maxAttempts, resolveErr,
 					))
-					if attempt == MaxConflictAttempts {
+					if attempt == maxAttempts {
 						break
 					}
 					if sleepErr := sleep(ctx, conflictRetryDelay); sleepErr != nil {
