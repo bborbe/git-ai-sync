@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -65,6 +66,9 @@ func configure(t *testing.T, dir string) {
 	// effective (global) hooks path and reproduce the bug.
 	hooksPath := filepath.Join(runGit(t, dir, "rev-parse", "--absolute-git-dir"), "hooks")
 	runGit(t, dir, "config", "--local", "core.hooksPath", hooksPath)
+	// Pin core.quotePath so a non-ASCII path cannot be silently unquoted by a
+	// global false; StagedFiles must unquote via -z regardless.
+	runGit(t, dir, "config", "--local", "core.quotePath", "true")
 }
 
 func runGit(t *testing.T, dir string, args ...string) string {
@@ -327,5 +331,486 @@ func TestRemoteUnreachableKeepsLocalCommit(t *testing.T) {
 	}
 	if got := runGit(t, f.clone, "log", "-1", "--format=%s"); !strings.HasPrefix(got, "auto:") {
 		t.Errorf("local commit subject = %q, want an auto commit", got)
+	}
+}
+
+// installRefusalHook writes a pre-commit hook that refuses any of the named
+// paths. It decides from the index git presents to the hook: under --only that
+// is the named subset, not the whole index.
+func installRefusalHook(t *testing.T, repo string, blocked ...string) {
+	t.Helper()
+	hooksDir := filepath.Join(runGit(t, repo, "rev-parse", "--absolute-git-dir"), "hooks")
+	var script strings.Builder
+	script.WriteString("#!/bin/sh\n")
+	for _, path := range blocked {
+		script.WriteString("if git diff --cached --name-only | grep -qx '" + path + "'; then\n  exit 1\nfi\n")
+	}
+	script.WriteString("exit 0\n")
+	if err := os.WriteFile(filepath.Join(hooksDir, "pre-commit"), []byte(script.String()), 0o755); err != nil {
+		t.Fatalf("write pre-commit hook: %v", err)
+	}
+}
+
+func TestHookRefusalCommitsTheRest(t *testing.T) {
+	f := newFixture(t)
+	installRefusalHook(t, f.clone, "blocked.txt")
+	writeFile(t, f.clone, "blocked.txt", "blocked\n")
+	writeFile(t, f.clone, "normal.txt", "normal\n")
+	remoteSHA := f.addRemoteCommit(t, "remote.txt", "remote\n")
+
+	result, err := Run(context.Background(), f.clone, Options{
+		Strategy:      git.StrategyMerge,
+		CommitPrefix:  "auto",
+		PullWhenClean: true,
+		Clock:         fakeClock(),
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	names := runGit(t, f.clone, "log", "--name-only", "HEAD")
+	if !strings.Contains(names, "normal.txt") {
+		t.Errorf("normal.txt was not committed: %q", names)
+	}
+	if strings.Contains(names, "blocked.txt") {
+		t.Errorf("blocked.txt was committed: %q", names)
+	}
+	if got := runGit(t, f.clone, "status", "--porcelain"); !strings.Contains(got, "blocked.txt") {
+		t.Errorf("blocked.txt is no longer staged: %q", got)
+	}
+	if !result.Committed {
+		t.Errorf("Committed = false, want true: %+v", result)
+	}
+	if len(result.Blocked) != 1 || result.Blocked[0] != "blocked.txt" {
+		t.Errorf("Blocked = %v, want [blocked.txt]", result.Blocked)
+	}
+	if result.CommitErr == nil {
+		t.Fatal("CommitErr is nil, want the refusal")
+	}
+	if !strings.Contains(result.CommitErr.Error(), "blocked.txt") {
+		t.Errorf("CommitErr = %q, want it to name blocked.txt", result.CommitErr)
+	}
+	// The autostash pull merged the remote commit, and the accepted commit left
+	// the machine.
+	if !isAncestor(t, f.clone, remoteSHA, "HEAD") {
+		t.Errorf("remote commit %s is not an ancestor of HEAD", remoteSHA)
+	}
+	if !result.Pushed {
+		t.Errorf("Pushed = false, want true: %+v", result)
+	}
+	remoteNames := runGit(t, f.remote, "log", "--name-only", "master")
+	if !strings.Contains(remoteNames, "normal.txt") {
+		t.Errorf("normal.txt is not on the remote: %q", remoteNames)
+	}
+	if got := runGit(t, f.clone, "status", "--porcelain"); !strings.Contains(got, "blocked.txt") {
+		t.Errorf("blocked.txt is no longer staged after the pull: %q", got)
+	}
+	if got := runGit(t, f.clone, "diff", "--cached", "--name-only"); !strings.Contains(got, "blocked.txt") {
+		t.Errorf("blocked.txt is no longer in the index after the pull: %q", got)
+	}
+}
+
+// TestRefusalsAtProbePositionsCommitTheRest stages six units and refuses the
+// units at indices 0, 3 and 5 — exactly the three positions the removed probe
+// heuristic sampled. Every probe failing must not be read as a global failure:
+// the three accepted units still commit.
+func TestRefusalsAtProbePositionsCommitTheRest(t *testing.T) {
+	f := newFixture(t)
+	refused := []string{"unit-0.txt", "unit-3.txt", "unit-5.txt"}
+	installRefusalHook(t, f.clone, refused...)
+	for i := 0; i < 6; i++ {
+		writeFile(t, f.clone, "unit-"+string(rune('0'+i))+".txt", "x\n")
+	}
+
+	result, err := Run(context.Background(), f.clone, Options{
+		Strategy:      git.StrategyMerge,
+		CommitPrefix:  "auto",
+		PullWhenClean: true,
+		Clock:         fakeClock(),
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !result.Committed {
+		t.Errorf("Committed = false, want true: %+v", result)
+	}
+	// Bisection lands the accepted units in more than one commit, so inspect the
+	// whole history rather than HEAD alone.
+	names := runGit(t, f.clone, "log", "--name-only", "--format=")
+	for _, path := range []string{"unit-1.txt", "unit-2.txt", "unit-4.txt"} {
+		if !strings.Contains(names, path) {
+			t.Errorf("%s was not committed: %q", path, names)
+		}
+	}
+	staged := runGit(t, f.clone, "diff", "--cached", "--name-only")
+	for _, path := range refused {
+		if !containsLine(staged, path) {
+			t.Errorf("%s is no longer staged: %q", path, staged)
+		}
+		if !containsString(result.Blocked, path) {
+			t.Errorf("Blocked = %v, want it to name %s", result.Blocked, path)
+		}
+	}
+	if len(result.Blocked) != len(refused) {
+		t.Errorf("Blocked = %v, want %v", result.Blocked, refused)
+	}
+}
+
+func containsLine(lines, want string) bool {
+	for _, line := range strings.Split(lines, "\n") {
+		if strings.TrimSpace(line) == want {
+			return true
+		}
+	}
+	return false
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
+func TestAutostashPopConflictStopsCycle(t *testing.T) {
+	f := newFixture(t)
+	// Track blocked.txt on both sides first, so the autostash conflict is a
+	// modify/modify (UU) rather than an add/add (AA) conflict.
+	writeFile(t, f.clone, "blocked.txt", "base\n")
+	runGit(t, f.clone, "add", "blocked.txt")
+	runGit(t, f.clone, "commit", "-m", "base blocked")
+	runGit(t, f.clone, "push")
+	installRefusalHook(t, f.clone, "blocked.txt")
+	// The accepted path keeps Blocked non-empty, which is what makes runDirty
+	// choose PullWithAutostash; with no accepted path it would pick plain Pull.
+	writeFile(t, f.clone, "blocked.txt", "local\n")
+	writeFile(t, f.clone, "normal.txt", "normal\n")
+	// The blocked path also changes upstream, so reapplying the autostash
+	// conflicts and leaves an unmerged entry with markers in the worktree.
+	f.addRemoteCommit(t, "blocked.txt", "remote\n")
+
+	result, err := Run(context.Background(), f.clone, Options{
+		Strategy:      git.StrategyMerge,
+		CommitPrefix:  "auto",
+		PullWhenClean: true,
+		Clock:         fakeClock(),
+	})
+	if err == nil {
+		t.Fatal("Run succeeded, want an autostash pop conflict")
+	}
+	if !stderrors.Is(err, git.ErrConflict) {
+		t.Errorf("error does not wrap ErrConflict: %v", err)
+	}
+	if len(result.Blocked) != 1 || result.Blocked[0] != "blocked.txt" {
+		t.Errorf("Blocked = %v, want [blocked.txt]", result.Blocked)
+	}
+	if got := runGit(t, f.clone, "log", "--all", "-S", "<<<<<<<"); got != "" {
+		t.Errorf("a commit contains conflict markers:\n%s", got)
+	}
+
+	// The autostash is retained and the worktree still has unmerged entries, so a
+	// second cycle reaches unmergedError's autostash branch — the first cycle's
+	// error came from autostashConflict in internal/git instead.
+	if got := runGit(t, f.clone, "stash", "list"); !strings.Contains(got, "autostash") {
+		t.Fatalf("retained autostash is missing from stash list: %q", got)
+	}
+	if got := runGit(t, f.clone, "status", "--porcelain"); !strings.Contains(got, "UU") {
+		t.Fatalf("worktree has no unmerged entries: %q", got)
+	}
+
+	result, err = Run(context.Background(), f.clone, Options{
+		Strategy:      git.StrategyMerge,
+		CommitPrefix:  "auto",
+		PullWhenClean: true,
+		Clock:         fakeClock(),
+	})
+	if err == nil {
+		t.Fatal("second Run succeeded, want an unmerged-path error")
+	}
+	if !stderrors.Is(err, git.ErrConflict) {
+		t.Errorf("second error does not wrap ErrConflict: %v", err)
+	}
+	if !strings.Contains(err.Error(), "blocked.txt") {
+		t.Errorf("second error does not name the unmerged path: %v", err)
+	}
+	if !strings.Contains(err.Error(), "stash drop") {
+		t.Errorf("second error does not mention stash drop for a retained autostash: %v", err)
+	}
+}
+
+func TestPreexistingUnmergedPathStopsCycle(t *testing.T) {
+	f := newFixture(t)
+	writeFile(t, f.clone, "note.md", "local\n")
+	runGit(t, f.clone, "add", "note.md")
+	runGit(t, f.clone, "commit", "-m", "local edit")
+	f.addRemoteCommit(t, "note.md", "remote\n")
+
+	// Leave the clone with an unmerged UU entry and a MERGE_HEAD in place.
+	cmd := exec.Command("git", "pull", "--no-rebase")
+	cmd.Dir = f.clone
+	_ = cmd.Run()
+
+	before := runGit(t, f.clone, "rev-parse", "HEAD")
+	result, err := Run(context.Background(), f.clone, Options{
+		Strategy:      git.StrategyMerge,
+		CommitPrefix:  "auto",
+		PullWhenClean: true,
+		Clock:         fakeClock(),
+	})
+	if err == nil {
+		t.Fatal("Run succeeded, want an unmerged-path error")
+	}
+	if !stderrors.Is(err, git.ErrConflict) {
+		t.Errorf("error does not wrap ErrConflict: %v", err)
+	}
+	// No autostash exists, so the recovery is git-ai-sync resolve, not a stash drop.
+	if strings.Contains(err.Error(), "stash drop") {
+		t.Errorf("error mentions stash drop without an autostash: %v", err)
+	}
+	// Run's merge guard returns before unmergedError, so call it directly to cover
+	// the no-autostash branch: it must name the path and point at resolve.
+	unmerged := unmergedError(context.Background(), f.clone)
+	if !stderrors.Is(unmerged, git.ErrConflict) {
+		t.Errorf("unmergedError does not wrap ErrConflict: %v", unmerged)
+	}
+	if !strings.Contains(unmerged.Error(), "note.md") {
+		t.Errorf("unmergedError does not name the unmerged path: %v", unmerged)
+	}
+	if !strings.Contains(unmerged.Error(), "git-ai-sync resolve") {
+		t.Errorf("unmergedError does not point at resolve: %v", unmerged)
+	}
+	if strings.Contains(unmerged.Error(), "stash drop") {
+		t.Errorf("unmergedError mentions stash drop without an autostash: %v", unmerged)
+	}
+	// resolve stages the conflicted files itself, so the advice must not tell the
+	// operator to stage them first.
+	for _, phrase := range []string{"stage the", "stage them"} {
+		if strings.Contains(unmerged.Error(), phrase) {
+			t.Errorf("unmergedError instructs staging (%q): %v", phrase, unmerged)
+		}
+	}
+	if result.Committed {
+		t.Errorf("Committed = true, want false: %+v", result)
+	}
+	if after := runGit(t, f.clone, "rev-parse", "HEAD"); after != before {
+		t.Errorf("HEAD moved from %s to %s; a commit was created", before, after)
+	}
+}
+
+// TestRetainedAutostashRecoveryNamesStashDrop covers unmerged paths with a
+// retained autostash-shaped stash and no merge or rebase state.
+func TestRetainedAutostashRecoveryNamesStashDrop(t *testing.T) {
+	f := newFixture(t)
+	writeFile(t, f.clone, "note.md", "hello\nstashed\n")
+	runGit(t, f.clone, "stash", "push", "-m", "autostash")
+	writeFile(t, f.clone, "note.md", "hello\ncommitted\n")
+	runGit(t, f.clone, "add", "note.md")
+	runGit(t, f.clone, "commit", "-m", "conflicting change")
+
+	cmd := exec.Command("git", "stash", "apply")
+	cmd.Dir = f.clone
+	if out, err := cmd.CombinedOutput(); err == nil {
+		t.Fatalf("stash apply succeeded, want a conflict: %s", out)
+	}
+
+	if git.IsInMerge(f.clone) || git.IsInRebase(f.clone) {
+		t.Fatal("stash apply left a merge or rebase state")
+	}
+	autostash, probeErr := git.HasAutostash(context.Background(), f.clone)
+	if probeErr != nil {
+		t.Fatalf("HasAutostash: %v", probeErr)
+	}
+	if !autostash {
+		t.Fatal("the autostash-shaped stash was not detected")
+	}
+
+	err := unmergedError(context.Background(), f.clone)
+	if err == nil {
+		t.Fatal("unmergedError returned nil")
+	}
+	if !stderrors.Is(err, git.ErrConflict) {
+		t.Errorf("error does not wrap ErrConflict: %v", err)
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "note.md") {
+		t.Errorf("error does not name the unmerged path: %v", err)
+	}
+	if !strings.Contains(msg, "stash drop") {
+		t.Errorf("error does not mention stash drop for a retained autostash: %v", err)
+	}
+}
+
+// TestManualStashPopConflictNamesStashRecovery covers the state a manual
+// git stash pop conflict leaves: unmerged paths, a retained WIP stash, and no
+// MERGE_HEAD. git-ai-sync resolve refuses that state, so the error must say so
+// and must not present it as the recovery.
+func TestManualStashPopConflictNamesStashRecovery(t *testing.T) {
+	f := newFixture(t)
+	writeFile(t, f.clone, "note.md", "hello\nstashed\n")
+	runGit(t, f.clone, "stash", "push")
+	writeFile(t, f.clone, "note.md", "hello\ncommitted\n")
+	runGit(t, f.clone, "add", "note.md")
+	runGit(t, f.clone, "commit", "-m", "conflicting change")
+
+	cmd := exec.Command("git", "stash", "pop")
+	cmd.Dir = f.clone
+	if out, err := cmd.CombinedOutput(); err == nil {
+		t.Fatalf("stash pop succeeded, want a conflict: %s", out)
+	}
+
+	if git.IsInMerge(f.clone) || git.IsInRebase(f.clone) {
+		t.Fatal("a manual stash pop conflict left a merge or rebase state")
+	}
+	if got := runGit(t, f.clone, "stash", "list"); !strings.Contains(got, "WIP on") {
+		t.Fatalf("the stash was not retained: %q", got)
+	}
+
+	err := unmergedError(context.Background(), f.clone)
+	if err == nil {
+		t.Fatal("unmergedError returned nil")
+	}
+	if !stderrors.Is(err, git.ErrConflict) {
+		t.Errorf("error does not wrap ErrConflict: %v", err)
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "note.md") {
+		t.Errorf("error does not name the unmerged path: %v", err)
+	}
+	if !strings.Contains(msg, "does not apply") {
+		t.Errorf("error does not say git-ai-sync resolve does not apply: %v", err)
+	}
+	if strings.Contains(msg, "run git-ai-sync resolve") {
+		t.Errorf("error presents git-ai-sync resolve as the recovery: %v", err)
+	}
+	if !strings.Contains(msg, "stash@{0}") && !strings.Contains(msg, "WIP on") {
+		t.Errorf("error does not name the retained stash entry: %v", err)
+	}
+}
+
+// TestMixedBudgetExhaustionCapsBlockedMessage stages a mixed set large enough to
+// exhaust the attempt budget. Some units commit and many stay blocked, so the
+// error message must list at most maxBlockedInMessage paths plus a count while
+// Result.Blocked still holds every uncommitted path.
+func TestMixedBudgetExhaustionCapsBlockedMessage(t *testing.T) {
+	f := newFixture(t)
+	const okCount = 100
+	const refusedCount = 300
+	hooksDir := filepath.Join(runGit(t, f.clone, "rev-parse", "--absolute-git-dir"), "hooks")
+	script := "#!/bin/sh\nif git diff --cached --name-only | grep -q '^refuse'; then exit 1; fi\nexit 0\n"
+	if err := os.WriteFile(filepath.Join(hooksDir, "pre-commit"), []byte(script), 0o755); err != nil {
+		t.Fatalf("write pre-commit hook: %v", err)
+	}
+	// Paths sort with every ok-* unit before every refuse-* unit, so the accepted
+	// half commits before the budget runs out in the refused half.
+	for i := 0; i < okCount; i++ {
+		writeFile(t, f.clone, "ok-"+strconv.Itoa(i)+".txt", "x\n")
+	}
+	for i := 0; i < refusedCount; i++ {
+		writeFile(t, f.clone, "refuse-"+strconv.Itoa(i)+".txt", "x\n")
+	}
+
+	result, err := Run(context.Background(), f.clone, Options{
+		Strategy:      git.StrategyMerge,
+		CommitPrefix:  "auto",
+		PullWhenClean: true,
+		Clock:         fakeClock(),
+	})
+	if err != nil {
+		t.Fatalf("Run returned an error, want the refusal in CommitErr: %v", err)
+	}
+	if !result.Committed {
+		t.Errorf("Committed = false, want true: %+v", result)
+	}
+	if result.CommitErr == nil {
+		t.Fatal("CommitErr is nil, want the refusal")
+	}
+	if got, want := len(result.Blocked), refusedCount; got != want {
+		t.Errorf("Blocked has %d paths, want %d", got, want)
+	}
+	msg := result.CommitErr.Error()
+	if !strings.Contains(msg, " and ") || !strings.Contains(msg, " more") {
+		t.Errorf("CommitErr does not summarize the blocked paths: %v", msg)
+	}
+	const marker = "blocked paths: "
+	idx := strings.Index(msg, marker)
+	if idx < 0 {
+		t.Fatalf("CommitErr does not contain %q: %v", marker, msg)
+	}
+	listed := msg[idx+len(marker):]
+	if end := strings.Index(listed, " and "); end >= 0 {
+		listed = listed[:end]
+	}
+	if got := len(strings.Split(listed, ", ")); got != maxBlockedInMessage {
+		t.Errorf("CommitErr lists %d paths, want %d: %v", got, maxBlockedInMessage, msg)
+	}
+}
+
+// TestGlobalCommitFailureStopsAtAttemptBudget stages more units than the budget
+// can attempt and refuses all of them. An unbudgeted bisection would cost 3n-2
+// subprocesses, so only a set this large reaches the budget-exhaustion branch.
+func TestGlobalCommitFailureStopsAtAttemptBudget(t *testing.T) {
+	f := newFixture(t)
+	counter := filepath.Join(t.TempDir(), "hook-count")
+	hooksDir := filepath.Join(runGit(t, f.clone, "rev-parse", "--absolute-git-dir"), "hooks")
+	script := "#!/bin/sh\necho x >> '" + counter + "'\nexit 1\n"
+	if err := os.WriteFile(filepath.Join(hooksDir, "pre-commit"), []byte(script), 0o755); err != nil {
+		t.Fatalf("write pre-commit hook: %v", err)
+	}
+	const unitCount = 200
+	for i := 0; i < unitCount; i++ {
+		writeFile(t, f.clone, "unit-"+strconv.Itoa(i)+".txt", "x\n")
+	}
+
+	result, err := Run(context.Background(), f.clone, Options{
+		Strategy:      git.StrategyMerge,
+		CommitPrefix:  "auto",
+		PullWhenClean: true,
+		Clock:         fakeClock(),
+	})
+	if err != nil {
+		t.Fatalf("Run returned an error, want the refusal in CommitErr: %v", err)
+	}
+	if result.CommitErr == nil {
+		t.Fatal("CommitErr is nil, want the original commit error")
+	}
+	if len(result.Blocked) != 0 {
+		t.Errorf("Blocked = %v, want empty for a global failure", result.Blocked)
+	}
+	staged := runGit(t, f.clone, "diff", "--cached", "--name-only")
+	if got := len(strings.Split(strings.TrimSpace(staged), "\n")); got != unitCount {
+		t.Errorf("staged units = %d, want %d", got, unitCount)
+	}
+	data, readErr := os.ReadFile(counter)
+	if readErr != nil {
+		t.Fatalf("read hook counter: %v", readErr)
+	}
+	if got := strings.Count(string(data), "\n"); got > maxCommitAttempts+2 {
+		t.Errorf("hook ran %d times, want at most %d (budget plus the full commit)", got, maxCommitAttempts+2)
+	}
+}
+
+func TestHookRefusalAllPathsBlocked(t *testing.T) {
+	f := newFixture(t)
+	installRefusalHook(t, f.clone, "blocked.txt")
+	writeFile(t, f.clone, "blocked.txt", "blocked\n")
+
+	result, err := Run(context.Background(), f.clone, Options{
+		Strategy:      git.StrategyMerge,
+		CommitPrefix:  "auto",
+		PullWhenClean: true,
+		Clock:         fakeClock(),
+	})
+	if err != nil {
+		t.Fatalf("Run returned an error: %v", err)
+	}
+	if result.Committed {
+		t.Errorf("Committed = true, want false: %+v", result)
+	}
+	if result.CommitErr == nil {
+		t.Fatal("CommitErr is nil, want the refusal")
+	}
+	if len(result.Blocked) != 0 {
+		t.Errorf("Blocked = %v, want empty", result.Blocked)
 	}
 }

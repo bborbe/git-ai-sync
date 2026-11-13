@@ -86,6 +86,46 @@ func Pull(ctx context.Context, repo string, strategy Strategy) error {
 	return err
 }
 
+// PullWithAutostash integrates remote commits with the given strategy, stashing
+// and restoring local changes around the merge (git pull --autostash). It lets a
+// pull proceed while a blocked path is still staged.
+func PullWithAutostash(ctx context.Context, repo string, strategy Strategy) error {
+	args := []string{"pull", "--no-rebase", "--autostash"}
+	if strategy == StrategyRebase {
+		args = []string{"pull", "--rebase", "--autostash"}
+	}
+	out, err := runGit(ctx, repo, args...)
+	if err == nil {
+		// git pull --autostash exits 0 even when reapplying the stash conflicts:
+		// the path is left unmerged in the worktree and no MERGE_HEAD exists, so
+		// inConflictState cannot see it. Detect it here or the failure is silent.
+		return autostashConflict(ctx, repo)
+	}
+	if inConflictState(repo, strategy) {
+		return errors.Wrapf(ctx, ErrConflict, "pull conflict: %s", out)
+	}
+	return err
+}
+
+// autostashConflict reports an error wrapping ErrConflict when the pull
+// succeeded but left unmerged paths behind, which happens when the stashed
+// changes conflict with the merged result.
+func autostashConflict(ctx context.Context, repo string) error {
+	files, err := ConflictedFiles(ctx, repo)
+	if err != nil {
+		return err
+	}
+	if len(files) == 0 {
+		return nil
+	}
+	return errors.Wrapf(
+		ctx,
+		ErrConflict,
+		"autostash pop conflict: unmerged paths: %s; the autostash is retained — resolve the conflict and run git stash drop, because git-ai-sync resolve requires MERGE_HEAD or a rebase directory and cannot clear this state",
+		strings.Join(files, ", "),
+	)
+}
+
 func inConflictState(repo string, strategy Strategy) bool {
 	if strategy == StrategyRebase {
 		if _, err := os.Stat(filepath.Join(repo, ".git", "rebase-merge")); err == nil {
@@ -129,6 +169,82 @@ func ConflictedFiles(ctx context.Context, repo string) ([]string, error) {
 		}
 	}
 	return files, nil
+}
+
+// HasUnmergedPaths reports whether the worktree has unresolved merge entries.
+func HasUnmergedPaths(ctx context.Context, repo string) (bool, error) {
+	files, err := ConflictedFiles(ctx, repo)
+	if err != nil {
+		return false, err
+	}
+	return len(files) > 0, nil
+}
+
+// HasAutostash reports whether a retained autostash entry exists. git pull
+// --autostash stores its entry with the subject "autostash", which stash list
+// renders as "stash@{0}: autostash"; a plain stash renders as
+// "stash@{0}: WIP on master: <sha> <subject>". Matching the last colon-separated
+// segment therefore finds the autostash and not the operator's own stashes. An
+// operator stash created with -m autostash matches too, which is intended: both
+// are autostash-shaped and dropping is the right recovery for either.
+func HasAutostash(ctx context.Context, repo string) (bool, error) {
+	out, err := runGit(ctx, repo, "stash", "list")
+	if err != nil {
+		return false, errors.Wrapf(ctx, err, "list stashes")
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if idx := strings.LastIndex(line, ": "); idx >= 0 && line[idx+2:] == "autostash" {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// StagedFiles returns the staged changes as commit units
+// (git diff --cached --name-status -z). Each unit holds one path for an add,
+// modify, or delete, and both paths for a rename, so a partial commit cannot
+// split a rename into an add plus a stale original. -z keeps records
+// NUL-separated and unquoted, so a non-ASCII path reaches CommitPaths verbatim
+// instead of as a C-quoted literal that git rejects as a pathspec.
+func StagedFiles(ctx context.Context, repo string) ([][]string, error) {
+	out, err := runGit(ctx, repo, "diff", "--cached", "--name-status", "-z")
+	if err != nil {
+		return nil, errors.Wrapf(ctx, err, "list staged files")
+	}
+	fields := strings.Split(out, "\x00")
+	var units [][]string
+	for i := 0; i < len(fields); i++ {
+		status := fields[i]
+		if status == "" {
+			continue
+		}
+		if strings.HasPrefix(status, "R") || strings.HasPrefix(status, "C") {
+			if i+2 >= len(fields) {
+				break
+			}
+			units = append(units, []string{fields[i+1], fields[i+2]})
+			i += 2
+			continue
+		}
+		if i+1 >= len(fields) {
+			break
+		}
+		units = append(units, []string{fields[i+1]})
+		i++
+	}
+	return units, nil
+}
+
+// CommitPaths commits only the named paths
+// (git commit --only -m <message> -- <paths>), leaving every other staged path
+// in the index.
+func CommitPaths(ctx context.Context, repo, message string, paths []string) error {
+	args := append([]string{"commit", "--only", "-m", message, "--"}, paths...)
+	_, err := runGit(ctx, repo, args...)
+	if err != nil {
+		return errors.Wrapf(ctx, err, "commit %s", strings.Join(paths, ", "))
+	}
+	return nil
 }
 
 // StageFile stages one path (git add -- <path>).
