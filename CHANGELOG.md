@@ -8,7 +8,7 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 * MINOR version when you add functionality in a backwards-compatible manner, and
 * PATCH version when you make backwards-compatible bug fixes.
 
-## Unreleased
+## v0.19.5
 
 - fix: name the recovery that matches the actual unmerged state, and describe blocked paths honestly when the attempt budget runs out
 - fix: bisect every staged unit under an attempt budget instead of sampling three, so a refused unit at a sampled position can no longer leave a committable file behind
