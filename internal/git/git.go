@@ -47,9 +47,15 @@ func FindRepo(ctx context.Context, path string) (string, error) {
 	return "", errors.Errorf(ctx, "not a git repository: %s", path)
 }
 
+// StatusPorcelain returns the raw output of `git status --porcelain`, which
+// reports tracked changes and untracked files (respecting .gitignore).
+func StatusPorcelain(ctx context.Context, repo string) (string, error) {
+	return runGit(ctx, repo, "status", "--porcelain")
+}
+
 // HasChanges reports whether the worktree or index has uncommitted changes.
 func HasChanges(ctx context.Context, repo string) (bool, error) {
-	out, err := runGit(ctx, repo, "status", "--porcelain")
+	out, err := StatusPorcelain(ctx, repo)
 	if err != nil {
 		return false, err
 	}

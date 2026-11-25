@@ -1,146 +1,117 @@
-// Package changetracker records the newest qualifying filesystem change.
+// Package changetracker records the newest qualifying repository change by
+// polling `git status --porcelain`.
 package changetracker
 
 import (
 	"context"
+	"log/slog"
 	"math"
-	"os"
-	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
-	"github.com/bborbe/errors"
-	"github.com/fsnotify/fsnotify"
-
 	"github.com/bborbe/git-ai-sync/internal/clock"
+	"github.com/bborbe/git-ai-sync/internal/git"
 )
 
 // NeverChanged is the duration returned when no qualifying change has been seen.
 const NeverChanged time.Duration = math.MaxInt64
 
-// ShouldIgnore reports whether a filesystem event is the watcher's own noise.
-// It ignores directories, anything under .git/, *~ backups, *.swp, *.tmp, and
-// dot-prefixed names.
-func ShouldIgnore(path string, isDir bool) bool {
-	if isDir {
-		return true
-	}
-	slashed := filepath.ToSlash(path)
-	if strings.Contains(slashed, "/.git/") || strings.HasSuffix(slashed, "/.git") {
-		return true
-	}
-	if strings.HasSuffix(path, "~") || strings.HasSuffix(path, ".swp") || strings.HasSuffix(path, ".tmp") {
-		return true
-	}
-	return strings.HasPrefix(filepath.Base(path), ".")
-}
+// defaultPollInterval is how often the tracker runs `git status --porcelain`.
+const defaultPollInterval = 10 * time.Second
 
-// Tracker records the time of the newest qualifying filesystem change.
+// Tracker records the time of the newest qualifying repository change.
 type Tracker struct {
-	watchPath string
-	clk       clock.Clock
+	watchPath    string
+	clk          clock.Clock
+	pollInterval time.Duration
+	gitStatus    func(ctx context.Context, repo string) (string, error)
 
 	mu         sync.RWMutex
 	lastChange time.Time
+	lastStatus string
+	primed     bool
 
-	watcher  *fsnotify.Watcher
 	done     chan struct{}
+	cancel   context.CancelFunc
 	stopOnce sync.Once
 	wg       sync.WaitGroup
 }
 
-// New returns a Tracker watching watchPath and reading time from clk.
+// New returns a Tracker polling watchPath and reading time from clk.
 func New(watchPath string, clk clock.Clock) *Tracker {
 	return &Tracker{
-		watchPath: watchPath,
-		clk:       clk,
-		done:      make(chan struct{}),
+		watchPath:    watchPath,
+		clk:          clk,
+		pollInterval: defaultPollInterval,
+		gitStatus:    git.StatusPorcelain,
+		done:         make(chan struct{}),
 	}
 }
 
-// Start begins recursive filesystem watching.
+// Start records the current git status as the baseline and begins polling. A
+// write issued after Start is therefore never folded into the baseline.
 func (t *Tracker) Start(ctx context.Context) error {
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		return errors.Wrapf(ctx, err, "watch %s", t.watchPath)
-	}
-	if err := t.addRecursive(watcher, t.watchPath); err != nil {
-		_ = watcher.Close()
-		return errors.Wrapf(ctx, err, "watch %s", t.watchPath)
-	}
-	t.watcher = watcher
+	runCtx, cancel := context.WithCancel(ctx)
+	t.cancel = cancel
+	t.poll(runCtx)
 	t.wg.Add(1)
-	go t.run()
+	go t.run(runCtx)
 	return nil
 }
 
-func (t *Tracker) addRecursive(watcher *fsnotify.Watcher, root string) error {
-	return filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if !entry.IsDir() {
-			return nil
-		}
-		if entry.Name() == ".git" {
-			return filepath.SkipDir
-		}
-		if err := watcher.Add(path); err != nil {
-			return err
-		}
-		return nil
-	})
-}
-
-func (t *Tracker) run() {
+func (t *Tracker) run(ctx context.Context) {
 	defer t.wg.Done()
+	ticker := time.NewTicker(t.pollInterval)
+	defer ticker.Stop()
 	for {
 		select {
 		case <-t.done:
 			return
-		case event, ok := <-t.watcher.Events:
-			if !ok {
-				return
-			}
-			t.handleWatcherEvent(event)
-		case <-t.watcher.Errors:
-			// Watcher errors do not stop the tracker.
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			t.poll(ctx)
 		}
 	}
 }
 
-func (t *Tracker) handleWatcherEvent(event fsnotify.Event) {
-	isDir := false
-	if info, err := os.Stat(event.Name); err == nil && info.IsDir() {
-		isDir = true
+// poll runs one status check and records a change when the status differs from
+// the previous poll and is not clean. The first poll only establishes the
+// baseline; a dirty-to-clean transition is the sync loop's own commit and is not
+// recorded, because it would reset the quiet window after every successful sync.
+func (t *Tracker) poll(ctx context.Context) {
+	status, err := t.gitStatus(ctx, t.watchPath)
+	if err != nil {
+		slog.Default().Warn("changetracker: git status failed", "path", t.watchPath, "error", err)
+		return
 	}
-	if event.Has(fsnotify.Create) && isDir {
-		_ = t.addRecursive(t.watcher, event.Name)
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if !t.primed {
+		t.primed = true
+		t.lastStatus = status
+		return
 	}
-	t.HandleEvent(event.Name, isDir)
+	if status == t.lastStatus {
+		return
+	}
+	t.lastStatus = status
+	if status == "" {
+		return
+	}
+	t.lastChange = t.clk.Now()
 }
 
-// Stop stops watching. It is safe to call more than once.
+// Stop stops polling. It is safe to call more than once.
 func (t *Tracker) Stop() {
 	t.stopOnce.Do(func() {
 		close(t.done)
-		if t.watcher != nil {
-			_ = t.watcher.Close()
+		if t.cancel != nil {
+			t.cancel()
 		}
 	})
 	t.wg.Wait()
-}
-
-// HandleEvent records a change for path unless ShouldIgnore rejects it. It is
-// exported so tests can drive the ignore and reset rules deterministically.
-func (t *Tracker) HandleEvent(path string, isDir bool) {
-	if ShouldIgnore(path, isDir) {
-		return
-	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.lastChange = t.clk.Now()
 }
 
 // SecondsSinceLastChange reports the time since the newest qualifying change.

@@ -111,14 +111,16 @@ the link means the plist survives the upgrade, while recording the link's
 versioned target would leave the agent naming a directory the upgrade
 deletes. A plain install that is not a link records its own path unchanged.
 
-`NumberOfFiles` is sized for the workload, not for the launchd baseline. The
-change tracker (`internal/changetracker`) is built on `fsnotify`, which on macOS
-backs each watched path with a file descriptor; the twelve Obsidian vaults hold
-64,945 files between them (measured 2026-11-10), so the supervisor needs tens of
-thousands of descriptors. At 4096 every vault loop failed at startup with
-`too many open files` while `launchctl list` still reported the agent as
-`running`, so nothing synced and the failure was invisible from the status
-output. The launchd baseline's 4096-file rule is a floor written for ordinary
+`NumberOfFiles` is sized for the workload, not for the launchd baseline. At
+4096 every vault loop failed at startup with `too many open files` while
+`launchctl list` still reported the agent as `running`, so nothing synced and
+the failure was invisible from the status output. That outage happened while
+the change tracker (`internal/changetracker`) was built on `fsnotify`, which on
+macOS backs each watched path with a file descriptor; the twelve Obsidian
+vaults hold 64,945 files between them (measured 2026-11-10). The tracker now
+polls `git status --porcelain` and holds no per-file descriptor, but the limits
+are retained as headroom and pinned by spec 011 — there is no knob to lower
+them. The launchd baseline's 4096-file rule is a floor written for ordinary
 services that hold a handful of sockets and log handles, not a fit for this
 process.
 
