@@ -107,7 +107,7 @@ See [`docs/launchd-service.md`](docs/launchd-service.md) for the full guide and 
 
 The watcher does not sync while you are actively editing. Each cycle it checks how long ago files last changed, and skips the sync when that is more recent than the required quiet window. The window starts at the poll interval and halves on every consecutive skipped cycle, so a vault written continuously still decays toward a window short enough to become eligible to sync. A successful sync resets the window to the full interval and restarts the wait clock.
 
-That decay alone would still let a busy vault go a long time without a sync, so a hard bound sits on top of it: `GIT_AI_SYNC_MAX_WAIT` forces a sync once that many seconds have passed since the last successful sync, regardless of how recently files changed. The worst-case delay on a continuously written vault is therefore the maximum wait rounded up to the next poll boundary — at most `max_wait + interval` seconds.
+That decay alone would still let a busy vault go a long time without a sync, so a hard bound sits on top of it: `GIT_AI_SYNC_MAX_WAIT` forces a sync once that many seconds have passed since the last successful sync, regardless of how recently files changed. The worst-case delay on a continuously written vault is therefore the maximum wait rounded up to the next poll boundary — at most `max_wait + interval` seconds, plus up to the change tracker's 10 s status-poll interval.
 
 A vault that goes quiet between cycles is unaffected: once the quiet window has passed, the cycle syncs exactly as it did before this behaviour existed. The two mechanisms are distinguishable in the log — a skipped cycle reports the quiet window currently in force, while a cycle forced by the bound says so explicitly.
 

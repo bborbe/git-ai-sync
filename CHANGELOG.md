@@ -8,6 +8,10 @@ Please choose versions by [Semantic Versioning](http://semver.org/).
 * MINOR version when you add functionality in a backwards-compatible manner, and
 * PATCH version when you make backwards-compatible bug fixes.
 
+## Unreleased
+
+- chore: replace the fsnotify change tracker with a git status --porcelain poller, bounding file-descriptor use
+
 ## v0.20.1
 
 - chore: update Go to 1.27.4 and github.com/bborbe/errors to v1.7.0, go.yaml.in/yaml/v3 to v3.0.6
