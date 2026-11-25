@@ -60,21 +60,51 @@ func TestPollErrorLeavesLastChangeUntouched(t *testing.T) {
 	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	fake := clocktest.NewFake(t0)
 	tracker := New(t.TempDir(), fake)
-	calls := 0
+	status := ""
+	fail := false
 	tracker.gitStatus = func(context.Context, string) (string, error) {
-		calls++
-		if calls == 1 {
-			return "", nil
+		if fail {
+			return "", errors.New("git status failed")
 		}
-		return "", errors.New("git status failed")
+		return status, nil
 	}
 
-	tracker.poll(context.Background())
+	tracker.poll(context.Background()) // baseline ""
+	status = " M note.md\n"
 	fake.Advance(5 * time.Second)
-	tracker.poll(context.Background())
+	tracker.poll(context.Background()) // records a change at t0+5s
+	fail = true
+	fake.Advance(3 * time.Second)
+	tracker.poll(context.Background()) // error — must not touch lastChange
 
-	if got := tracker.SecondsSinceLastChange(t0.Add(5 * time.Second)); got != NeverChanged {
-		t.Fatalf("SecondsSinceLastChange = %v, want NeverChanged after a status error", got)
+	if got := tracker.SecondsSinceLastChange(t0.Add(8 * time.Second)); got != 3*time.Second {
+		t.Fatalf("SecondsSinceLastChange = %v, want 3s (lastChange stays t0+5s after an error)", got)
+	}
+}
+
+func TestStopDoesNotBlockOnHungGitStatus(t *testing.T) {
+	tracker := New(t.TempDir(), clock.New())
+	tracker.pollInterval = 10 * time.Millisecond
+	calls := 0
+	tracker.gitStatus = func(ctx context.Context, _ string) (string, error) {
+		calls++
+		if calls == 1 {
+			return "", nil // baseline returns immediately
+		}
+		<-ctx.Done() // a subsequent poll hangs until cancelled
+		return "", ctx.Err()
+	}
+	if err := tracker.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	time.Sleep(60 * time.Millisecond) // let a tick enter the hung gitStatus
+
+	done := make(chan struct{})
+	go func() { tracker.Stop(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Stop blocked on a hung git status")
 	}
 }
 

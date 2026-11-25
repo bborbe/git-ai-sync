@@ -49,8 +49,10 @@ func FindRepo(ctx context.Context, path string) (string, error) {
 
 // StatusPorcelain returns the raw output of `git status --porcelain`, which
 // reports tracked changes and untracked files (respecting .gitignore).
+// --no-optional-locks keeps the poller from taking .git/index.lock, which would
+// otherwise race the sync loop's git add/commit on the same repo.
 func StatusPorcelain(ctx context.Context, repo string) (string, error) {
-	return runGit(ctx, repo, "status", "--porcelain")
+	return runGit(ctx, repo, "--no-optional-locks", "status", "--porcelain")
 }
 
 // HasChanges reports whether the worktree or index has uncommitted changes.

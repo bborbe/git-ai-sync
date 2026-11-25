@@ -49,11 +49,18 @@ func New(watchPath string, clk clock.Clock) *Tracker {
 }
 
 // Start records the current git status as the baseline and begins polling. A
-// write issued after Start is therefore never folded into the baseline.
+// write issued after Start is therefore never folded into the baseline; if the
+// baseline status read fails, Start returns the error rather than deferring the
+// baseline to a later tick.
 func (t *Tracker) Start(ctx context.Context) error {
 	runCtx, cancel := context.WithCancel(ctx)
+	t.mu.Lock()
 	t.cancel = cancel
-	t.poll(runCtx)
+	t.mu.Unlock()
+	if err := t.poll(runCtx); err != nil {
+		cancel()
+		return err
+	}
 	t.wg.Add(1)
 	go t.run(runCtx)
 	return nil
@@ -70,7 +77,7 @@ func (t *Tracker) run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			t.poll(ctx)
+			_ = t.poll(ctx) // errors are logged inside poll
 		}
 	}
 }
@@ -79,11 +86,11 @@ func (t *Tracker) run(ctx context.Context) {
 // the previous poll and is not clean. The first poll only establishes the
 // baseline; a dirty-to-clean transition is the sync loop's own commit and is not
 // recorded, because it would reset the quiet window after every successful sync.
-func (t *Tracker) poll(ctx context.Context) {
+func (t *Tracker) poll(ctx context.Context) error {
 	status, err := t.gitStatus(ctx, t.watchPath)
 	if err != nil {
 		slog.Default().Warn("changetracker: git status failed", "path", t.watchPath, "error", err)
-		return
+		return err
 	}
 
 	t.mu.Lock()
@@ -91,24 +98,28 @@ func (t *Tracker) poll(ctx context.Context) {
 	if !t.primed {
 		t.primed = true
 		t.lastStatus = status
-		return
+		return nil
 	}
 	if status == t.lastStatus {
-		return
+		return nil
 	}
 	t.lastStatus = status
 	if status == "" {
-		return
+		return nil
 	}
 	t.lastChange = t.clk.Now()
+	return nil
 }
 
 // Stop stops polling. It is safe to call more than once.
 func (t *Tracker) Stop() {
 	t.stopOnce.Do(func() {
 		close(t.done)
-		if t.cancel != nil {
-			t.cancel()
+		t.mu.Lock()
+		cancel := t.cancel
+		t.mu.Unlock()
+		if cancel != nil {
+			cancel()
 		}
 	})
 	t.wg.Wait()
