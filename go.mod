@@ -3,7 +3,7 @@ module github.com/bborbe/git-ai-sync
 go 1.27.4
 
 require (
-	github.com/bborbe/errors v1.7.0
+	github.com/bborbe/errors v1.7.1
 	github.com/spf13/cobra v1.10.2
 	go.yaml.in/yaml/v3 v3.0.6
 )
